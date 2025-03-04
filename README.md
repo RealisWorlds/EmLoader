@@ -1,111 +1,191 @@
 # Mindcraft 🧠⛏️
 
-Crafting minds for Minecraft with LLMs and [Mineflayer!](https://prismarinejs.github.io/mineflayer/#/)
+> AI-powered Minecraft agents built with LLMs and Mineflayer
 
-[FAQ](https://github.com/kolbytn/mindcraft/blob/main/FAQ.md) | [Discord Support](https://discord.gg/mp73p35dzC) | [Video Tutorial](https://www.youtube.com/watch?v=gRotoL8P8D8) | [Blog Post](https://kolbynottingham.com/mindcraft/) | [Contributor TODO](https://github.com/users/kolbytn/projects/1)
+Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by large language models (LLMs) to interact with the game world. These intelligent agents can build structures, gather resources, follow players, craft items, and engage in natural conversations - all while learning from their experiences.
 
+[![Discord](https://img.shields.io/discord/1111111111111111111?label=Discord&logo=discord&logoColor=white)](https://discord.gg/mp73p35dzC)
+[![YouTube](https://img.shields.io/badge/YouTube-Tutorial-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=gRotoL8P8D8)
+[![Blog](https://img.shields.io/badge/Blog-Post-blue?logo=medium&logoColor=white)](https://kolbynottingham.com/mindcraft/)
 
-> [!Caution]
-Do not connect this bot to public servers with coding enabled. This project allows an LLM to write/execute code on your computer. The code is sandboxed, but still vulnerable to injection attacks. Code writing is disabled by default, you can enable it by setting `allow_insecure_coding` to `true` in `settings.js`. Ye be warned.
+## 📋 Table of Contents
 
-## Requirements
+- [Features](#-features)
+- [Requirements](#-requirements)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [Bot Profiles](#-bot-profiles)
+- [Commands and Usage](#-commands-and-usage)
+- [Model Support](#-model-support)
+- [Connecting to Servers](#-connecting-to-servers)
+- [Security and Docker](#-security-and-docker)
+- [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
 
-- [Minecraft Java Edition](https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc) (up to v1.21.1, recommend v1.20.4)
-- [Node.js Installed](https://nodejs.org/) (at least v14)
-- One of these: [OpenAI API Key](https://openai.com/blog/openai-api) | [Gemini API Key](https://aistudio.google.com/app/apikey) | [Anthropic API Key](https://docs.anthropic.com/claude/docs/getting-access-to-claude) | [Replicate API Key](https://replicate.com/) | [Hugging Face API Key](https://huggingface.co/) | [Groq API Key](https://console.groq.com/keys) | [Ollama Installed](https://ollama.com/download). | [Mistral API Key](https://docs.mistral.ai/getting-started/models/models_overview/) | [Qwen API Key [Intl.]](https://www.alibabacloud.com/help/en/model-studio/developer-reference/get-api-key)/[[cn]](https://help.aliyun.com/zh/model-studio/getting-started/first-api-call-to-qwen?) | [Novita AI API Key](https://novita.ai/settings?utm_source=github_mindcraft&utm_medium=github_readme&utm_campaign=link#key-management) |
+## ✨ Features
 
-## Install and Run
+- **Multiple AI Models**: Supports OpenAI, Google Gemini, Anthropic Claude, Mistral, Groq, Ollama and more
+- **Multi-Agent Support**: Run multiple AI bots simultaneously with different personalities and capabilities
+- **Natural Language Interaction**: Talk to your bot using natural language in-game
+- **Code Generation**: Bots can write and execute JavaScript to perform complex tasks
+- **Memory System**: Bots remember important information from previous interactions
+- **Customizable Personalities**: Create unique bot personalities using JSON profiles
+- **Behavioral Modes**: Configure bots with different behavioral traits (self-preservation, hunting, etc.)
+- **Visual Feedback**: Option to view what the bot sees in a browser window
+- **Language Translation**: Support for translating interactions to and from multiple languages
+- **Command System**: Rich set of built-in commands for bot control and interaction
 
-1. Make sure you have the requirements above.
+> [!CAUTION]
+> Do not connect this bot to public servers with coding enabled. This project allows an LLM to write/execute code on your computer. The code is sandboxed, but still vulnerable to injection attacks. Code writing is disabled by default; you can enable it by setting `allow_insecure_coding` to `true` in `settings.js`.
 
-2. Clone or download this repository (big green button)
+## 🛠 Requirements
 
-3. Rename `keys.example.json` to `keys.json` and fill in your API keys (you only need one). The desired model is set in `andy.json` or other profiles. For other models refer to the table below.
+- [Minecraft Java Edition](https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc) (v1.20.4 recommended, supports up to v1.21.1)
+- [Node.js](https://nodejs.org/) (v14 or newer)
+- An API key from one of the supported LLM providers:
+  - [OpenAI](https://openai.com/blog/openai-api)
+  - [Google Gemini](https://aistudio.google.com/app/apikey)
+  - [Anthropic Claude](https://docs.anthropic.com/claude/docs/getting-access-to-claude)
+  - [Mistral AI](https://docs.mistral.ai/getting-started/models/models_overview/)
+  - [Groq](https://console.groq.com/keys)
+  - [Replicate](https://replicate.com/)
+  - [Hugging Face](https://huggingface.co/)
+  - [Novita AI](https://novita.ai/settings?utm_source=github_mindcraft&utm_medium=github_readme&utm_campaign=link#key-management)
+  - [Qwen](https://www.alibabacloud.com/help/en/model-studio/developer-reference/get-api-key)
+  - [Ollama](https://ollama.com/download) (local, no API key required)
 
-4. In terminal/command prompt, run `npm install` from the installed directory
+## 🚀 Quick Start
 
-5. Start a minecraft world and open it to LAN on localhost port `55916`
+1. **Setup API Keys**:
+   ```
+   cp keys.example.json keys.json
+   ```
+   Edit `keys.json` and add your preferred API key(s)
 
-6. Run `node main.js` from the installed directory
+2. **Install Dependencies**:
+   ```
+   npm install
+   ```
 
-If you encounter issues, check the [FAQ](https://github.com/kolbytn/mindcraft/blob/main/FAQ.md) or find support on [discord](https://discord.gg/mp73p35dzC). We are currently not very responsive to github issues.
+3. **Start Minecraft**:
+   - Launch Minecraft Java Edition (v1.20.4 recommended)
+   - Create a new world or load an existing one
+   - Open to LAN with port `55916` (or configure in `settings.js`)
 
-## Model Customization
+4. **Launch a Bot**:
+   ```
+   node main.js
+   ```
+   Or for a specific profile:
+   ```
+   node main.js --profiles ./profiles/BobVilaAI.json
+   ```
 
-You can configure project details in `settings.js`. [See file.](settings.js)
+5. **Interact with Your Bot**:
+   - Talk to your bot in the Minecraft chat
+   - Send commands or natural language requests
 
-You can configure the agent's name, model, and prompts in their profile like `andy.json` with the `model` field. For comprehensive details, see [Model Specifications](#model-specifications).
+## ⚙️ Configuration
 
-| API | Config Variable | Example Model name | Docs |
-|------|------|------|------|
-| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | [docs](https://platform.openai.com/docs/models) |
-| `google` | `GEMINI_API_KEY` | `gemini-pro` | [docs](https://ai.google.dev/gemini-api/docs/models/gemini) |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-3-haiku-20240307` | [docs](https://docs.anthropic.com/claude/docs/models-overview) |
-| `replicate` | `REPLICATE_API_KEY` | `replicate/meta/meta-llama-3-70b-instruct` | [docs](https://replicate.com/collections/language-models) |
-| `ollama` (local) | n/a | `llama3` | [docs](https://ollama.com/library) |
-| `groq` | `GROQCLOUD_API_KEY` | `groq/mixtral-8x7b-32768` | [docs](https://console.groq.com/docs/models) |
-| `huggingface` | `HUGGINGFACE_API_KEY` | `huggingface/mistralai/Mistral-Nemo-Instruct-2407` | [docs](https://huggingface.co/models) |
-| `novita` | `NOVITA_API_KEY` | `gryphe/mythomax-l2-13b` | [docs](https://novita.ai/model-api/product/llm-api?utm_source=github_mindcraft&utm_medium=github_readme&utm_campaign=link) |
-| `qwen` | `QWEN_API_KEY` | `qwen-max` | [Intl.](https://www.alibabacloud.com/help/en/model-studio/developer-reference/use-qwen-by-calling-api)/[cn](https://help.aliyun.com/zh/model-studio/getting-started/models) |
-| `xai` | `MISTRAL_API_KEY` | `mistral-large-latest` | [docs](https://docs.mistral.ai/getting-started/models/models_overview/) |
-| `deepseek` | `XAI_API_KEY` | `grok-beta` | [docs](https://docs.x.ai/docs) |
-| `openrouter` | `OPENROUTER_API_KEY` | `openrouter/anthropic/claude-3.5-sonnet` | [docs](https://openrouter.ai/models) |
+The main configuration is in `settings.js`. Key settings include:
 
-If you use Ollama, to install the models used by default (generation and embedding), execute the following terminal command:
-`ollama pull llama3 && ollama pull nomic-embed-text`
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `minecraft_version` | Minecraft version to connect to | `"1.21.4"` |
+| `host` | Server hostname/IP | `"localhost"` |
+| `port` | Server port | `25565` |
+| `auth` | Authentication type | `"offline"` |
+| `base_profile` | Default profile for all bots | `"./profiles/defaults/survival.json"` |
+| `profiles` | List of bot profiles to load | `["./profiles/BobVilaAI.json"]` |
+| `allow_insecure_coding` | Enable bot code generation | `true` |
+| `load_memory` | Load bot memory from previous sessions | `true` |
+| `only_chat_with` | Users the bot will exclusively chat with | `[]` |
+| `language` | Translation language | `"en"` |
+| `show_bot_views` | Show visual bot perspective in browser | `false` |
+| `max_messages` | Messages kept in bot context | `15` |
+| `num_examples` | Example interactions given to the bot | `2` |
 
-### Online Servers
-To connect to online servers your bot will need an official Microsoft/Minecraft account. You can use your own personal one, but will need another account if you want to connect too and play with it. To connect, change these lines in `settings.js`:
-```javascript
-"host": "111.222.333.444",
-"port": 55920,
-"auth": "microsoft",
+## 🤖 Bot Profiles
 
-// rest is same...
+Bot profiles are JSON files in the `profiles` directory that define:
+
+1. **Bot Personality**: How the bot behaves and communicates
+2. **Model Configuration**: Which LLM models to use for different functions
+3. **Behavioral Modes**: Special capabilities and tendencies
+4. **Examples**: Sample interactions that teach the bot how to respond
+
+Example profile structure:
+```json
+{
+  "name": "BobVilaAI",
+  "model": "deepseek-chat",
+  "embedding": "openai",
+  "conversing": "You are BobVilaAI...",
+  "coding": "You are an intelligent mineflayer bot...",
+  "saving_memory": "You are a minecraft bot named BobVilaAI...",
+  "modes": {
+    "self_preservation": false,
+    "unstuck": false,
+    "cowardice": false,
+    "self_defense": false,
+    "hunting": false,
+    "item_collecting": false,
+    "torch_placing": false,
+    "elbow_room": false,
+    "idle_staring": true,
+    "cheat": true
+  }
+}
 ```
-> [!Important]
-> The bot's name in the profile.json must exactly match the Minecraft profile name! Otherwise the bot will spam talk to itself.
 
-To use different accounts, Mindcraft will connect with the account that the Minecraft launcher is currently using. You can switch accounts in the launcer, then run `node main.js`, then switch to your main account after the bot has connected.
+## 🎮 Commands and Usage
 
-### Docker Container
+### Launch Commands
 
-If you intend to `allow_insecure_coding`, it is a good idea to run the app in a docker container to reduce risks of running unknown code. This is strongly recommended before connecting to remote servers.
+| Command | Description |
+|---------|-------------|
+| `node main.js` | Start with default profile from settings.js |
+| `node main.js --profiles ./profiles/BobVilaAI.json` | Start with a specific profile |
+| `node main.js --profiles ./profiles/bot1.json ./profiles/bot2.json` | Start multiple bots |
+| `node main.js --host_mindserver false` | Start without hosting the mindserver |
+| `npm start` | Alias for `node main.js` |
 
-```bash
-docker run -i -t --rm -v $(pwd):/app -w /app -p 3000-3003:3000-3003 node:latest node main.js
+### Helper Scripts
+
+| Script | Description |
+|--------|-------------|
+| `start_agent.bat [profile_name] [host_mindserver]` | Launch a bot with a specific profile (Windows) |
+| `start_agent.ps1` | Interactive PowerShell script to select and launch a bot (Windows) |
+| `run_multiple_agents.bat` | Launch predefined multiple bots (Windows) |
+| `run_multiple_agents_improved.bat` | Interactive script to select and launch multiple bots (Windows) |
+
+### In-Game Commands
+
+Bots understand natural language and various commands, including:
+
+| Command Type | Examples |
+|--------------|----------|
+| Movement | "Come here", "Follow me", "Go to the forest" |
+| Building | "Build a house", "Make a tower", "Dig a hole" |
+| Collecting | "Collect wood", "Mine some stone", "Gather food" |
+| Crafting | "Craft wooden planks", "Make a pickaxe", "Smelt iron ore" |
+| Combat | "Kill that zombie", "Attack the skeleton", "Defend yourself" |
+| Information | "What do you see?", "What's in your inventory?", "Where are we?" |
+
+## 🧠 Model Support
+
+You can specify models in profiles using either a simple string or a detailed configuration object:
+
+```json
+"model": "gpt-4o"
 ```
-or simply
-```bash
-docker-compose up
-```
 
-When running in docker, if you want the bot to join your local minecraft server, you have to use a special host address `host.docker.internal` to call your localhost from inside your docker container. Put this into your [settings.js](settings.js):
-
-```javascript
-"host": "host.docker.internal", // instead of "localhost", to join your local minecraft from inside the docker container
-```
-
-To connect to an unsupported minecraft version, you can try to use [viaproxy](services/viaproxy/README.md)
-
-# Bot Profiles
-
-Bot profiles are json files (such as `andy.json`) that define:
-
-1. Bot backend LLMs to use for talking, coding, and embedding.
-2. Prompts used to influence the bot's behavior.
-3. Examples help the bot perform tasks.
-
-## Model Specifications
-
-LLM models can be specified simply as `"model": "gpt-4o"`. However, you can use different models for chat, coding, and embeddings. 
-You can pass a string or an object for these fields. A model object must specify an `api`, and optionally a `model`, `url`, and additional `params`.
+Or with custom configuration:
 
 ```json
 "model": {
   "api": "openai",
   "model": "gpt-4o",
-  "url": "https://api.openai.com/v1/",
   "params": {
     "max_tokens": 1000,
     "temperature": 1
@@ -113,44 +193,95 @@ You can pass a string or an object for these fields. A model object must specify
 },
 "code_model": {
   "api": "openai",
-  "model": "gpt-4",
-  "url": "https://api.openai.com/v1/"
+  "model": "gpt-4"
 },
 "embedding": {
   "api": "openai",
-  "url": "https://api.openai.com/v1/",
   "model": "text-embedding-ada-002"
 }
-
 ```
 
-`model` is used for chat, `code_model` is used for newAction coding, and `embedding` is used to embed text for example selection. If `code_model` or `embedding` are not specified, they will use `model` by default. Not all APIs have an embedding model.
+### Supported APIs and Models
 
-All apis have default models and urls, so those fields are optional. The `params` field is optional and can be used to specify additional parameters for the model. It accepts any key-value pairs supported by the api. Is not supported for embedding models.
+| API | Config Variable | Example Models |
+|-----|----------------|----------------|
+| `openai` | `OPENAI_API_KEY` | `gpt-4o`, `gpt-4o-mini`, `gpt-3.5-turbo` |
+| `google` | `GEMINI_API_KEY` | `gemini-pro`, `gemini-1.5-pro` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku` |
+| `ollama` | n/a | `llama3`, `mixtral` |
+| `groq` | `GROQCLOUD_API_KEY` | `llama-3-8b-8192`, `mixtral-8x7b-32768` |
+| `mistral` | `MISTRAL_API_KEY` | `mistral-large-latest`, `mistral-medium` |
+| `huggingface` | `HUGGINGFACE_API_KEY` | `mistralai/Mistral-7B-Instruct-v0.2` |
+| `replicate` | `REPLICATE_API_KEY` | `meta/llama-3-70b-instruct` |
+| `novita` | `NOVITA_API_KEY` | `gryphe/mythomax-l2-13b` |
+| `qwen` | `QWEN_API_KEY` | `qwen-max`, `qwen-turbo` |
+| `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-3.5-sonnet` |
 
-## Embedding Models
+## 🌐 Connecting to Servers
 
-Embedding models are used to embed and efficiently select relevant examples for conversation and coding.
+### Online Servers
+To connect to online servers, you need a Microsoft/Minecraft account. Update `settings.js`:
 
-Supported Embedding APIs: `openai`, `google`, `replicate`, `huggingface`, `novita`
+```javascript
+"host": "server.address.com",
+"port": 25565,
+"auth": "microsoft",
+```
 
-If you try to use an unsupported model, then it will default to a simple word-overlap method. Expect reduced performance, recommend mixing APIs to ensure embedding support.
+> [!IMPORTANT]
+> The bot's name in the profile.json must exactly match the Minecraft profile name to prevent the bot from chatting with itself.
 
-## Specifying Profiles via Command Line
+To use different accounts, Mindcraft connects with the account currently active in the Minecraft launcher.
 
-By default, the program will use the profiles specified in `settings.js`. You can specify one or more agent profiles using the `--profiles` argument: `node main.js --profiles ./profiles/andy.json ./profiles/jill.json`
+## 🔒 Security and Docker
 
-## Patches
+If you enable insecure coding (`allow_insecure_coding: true`), it's recommended to run Mindcraft in a Docker container:
 
-Some of the node modules that we depend on have bugs in them. To add a patch, change your local node module file and run `npx patch-package [package-name]`
+```bash
+docker-compose up
+```
 
-## Citation:
+Or manually:
+
+```bash
+docker run -i -t --rm -v $(pwd):/app -w /app -p 3000-3003:3000-3003 node:latest node main.js
+```
+
+When running in Docker, use `host.docker.internal` in `settings.js` to connect to your local Minecraft server:
+
+```javascript
+"host": "host.docker.internal",
+```
+
+## 🔧 Troubleshooting
+
+Common issues and solutions:
+
+| Issue | Solution |
+|-------|----------|
+| Connection refused | Ensure Minecraft is open to LAN with correct port |
+| Module not found | Run `npm install` to install dependencies |
+| "My brain disconnected" | Check API key and rate limits |
+| Bot getting stuck | Update and reinstall node modules |
+| API key not found | Rename `keys.example.json` to `keys.json` and save changes |
+
+For more troubleshooting help, see the [FAQ](FAQ.md) or join our [Discord](https://discord.gg/mp73p35dzC).
+
+## 👥 Contributing
+
+Contributions are welcome! Check the [Contributor TODO](https://github.com/users/kolbytn/projects/1) for current priorities.
+
+To add patches for node modules, modify the local module file and run:
+```
+npx patch-package [package-name]
+```
+
+## 📝 Citation
 
 ```
 @misc{mindcraft2023,
     Author = {Kolby Nottingham and Max Robinson},
     Title = {MINDcraft: LLM Agents for cooperation, competition, and creativity in Minecraft},
     Year = {2023},
-    url={https://github.com/kolbytn/mindcraft}
+    url = {https://github.com/kolbytn/mindcraft}
 }
-```
