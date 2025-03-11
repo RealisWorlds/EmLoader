@@ -244,6 +244,23 @@ export class Agent {
         // Now translate the message
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
+        
+        // Store important user messages as long-term memories
+        if (!self_prompt && !from_other_bot && this.prompter && this.prompter.vectorClient) {
+            try {
+                // Only process messages from users (not system or other bots)
+                const formattedMessage = `${source}: ${message}`;
+                console.log('Storing memory from message:', formattedMessage.substring(0, 50) + (formattedMessage.length > 50 ? '...' : ''));
+                
+                // Process and store the memory (with medium importance by default)
+                this.prompter.promptMemoryStorage(formattedMessage, "medium").catch(err => {
+                    console.warn('Failed to store memory:', err);
+                });
+            } catch (error) {
+                console.warn('Error processing message for memory storage:', error);
+                // Continue with normal message processing even if memory storage fails
+            }
+        }
 
         const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
         
@@ -306,14 +323,34 @@ export class Agent {
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
                 used_command = true;
 
-                if (execute_res)
+                if (execute_res) {
                     this.history.add('system', execute_res);
+                    
+                    // Store important command results as memories
+                    if (this.prompter && this.prompter.vectorClient && 
+                        ['!craftItem', '!build', '!collectBlocks', '!attack'].some(cmd => command_name.startsWith(cmd))) {
+                        const commandMemory = `${this.name} used ${command_name} with result: ${execute_res}`;
+                        this.prompter.promptMemoryStorage(commandMemory, "high").catch(err => {
+                            console.warn('Failed to store command memory:', err);
+                        });
+                    }
+                }
                 else
                     break;
             }
             else { // conversation response
                 this.history.add(this.name, res);
                 this.routeResponse(source, res);
+                
+                // Store the agent's own responses as memories if they seem important
+                if (this.prompter && this.prompter.vectorClient && 
+                    (res.includes('important') || res.includes('remember') || res.includes('learned'))) {
+                    const responseMemory = `${this.name} told ${source}: ${res}`;
+                    this.prompter.promptMemoryStorage(responseMemory, "medium").catch(err => {
+                        console.warn('Failed to store response memory:', err);
+                    });
+                }
+                
                 break;
             }
             

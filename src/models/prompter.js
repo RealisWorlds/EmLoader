@@ -6,6 +6,7 @@ import { SkillLibrary } from "../agent/library/skill_library.js";
 import { stringifyTurns } from '../utils/text.js';
 import { getCommand } from '../agent/commands/index.js';
 import settings from '../../settings.js';
+import { QdrantClient } from '@qdrant/js-client-rest';
 
 import { Gemini } from './gemini.js';
 import { GPT } from './gpt.js';
@@ -106,6 +107,10 @@ export class Prompter {
             console.log('Continuing anyway, using word-overlap instead.');
             this.embedding_model = null;
         }
+        
+        // Initialize vector database for long-term memory
+        this.initVectorMemory();
+        
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);
         mkdirSync(`./bots/${name}`, { recursive: true });
         writeFileSync(`./bots/${name}/last_profile.json`, JSON.stringify(this.profile, null, 4), (err) => {
@@ -252,6 +257,11 @@ export class Prompter {
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
+        if (prompt.includes('$LONG_TERM_MEMORY') && messages && messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            const relevantMemories = await this.retrieveRelevantMemories(lastMessage.content, 3);
+            prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
+        }
         if (prompt.includes('$TO_SUMMARIZE'))
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
         if (prompt.includes('$CONVO'))
@@ -279,6 +289,10 @@ export class Prompter {
                 }
                 prompt = prompt.replaceAll('$BLUEPRINTS', blueprints.slice(0, -2));
             }
+        }
+        // Add support for $EXPERIENCE which is used in memory prompts
+        if (prompt.includes('$EXPERIENCE') && to_summarize && to_summarize.length > 0) {
+            prompt = prompt.replaceAll('$EXPERIENCE', stringifyTurns(to_summarize));
         }
 
         // check if there are any remaining placeholders with syntax $<word>
@@ -378,5 +392,224 @@ export class Prompter {
         }
         goal.quantity = parseInt(goal.quantity);
         return goal;
+    }
+
+    // Initialize vector database for long-term memory
+    async initVectorMemory() {
+        try {
+            // Default Qdrant settings - can be overridden in profile
+            const qdrantConfig = this.profile.vectorDb || {
+                url: 'http://localhost:6333',
+                collectionName: `${this.agent.name}_memories`,
+                vectorSize: 1536  // Default for many embedding models
+            };
+            
+            console.log('Initializing vector memory with config:', JSON.stringify(qdrantConfig, null, 2));
+            
+            // Initialize Qdrant client
+            this.vectorClient = new QdrantClient({ 
+                url: qdrantConfig.url 
+            });
+            
+            this.collectionName = qdrantConfig.collectionName;
+            const vectorSize = qdrantConfig.vectorSize;
+            
+            // Check if collection exists, create if it doesn't
+            try {
+                await this.vectorClient.getCollection(this.collectionName);
+                console.log(`Vector memory collection "${this.collectionName}" already exists.`);
+            } catch (error) {
+                // Collection doesn't exist, create it
+                console.log(`Creating vector memory collection "${this.collectionName}" with dimension ${vectorSize}`);
+                await this.vectorClient.createCollection(this.collectionName, {
+                    vectors: {
+                        size: vectorSize,
+                        distance: 'Cosine'
+                    }
+                });
+                console.log(`Created vector memory collection "${this.collectionName}"`);
+            }
+            
+            console.log("Vector database initialized successfully.");
+        } catch (error) {
+            console.error('Failed to initialize vector memory:', error);
+            this.vectorClient = null;
+        }
+    }
+    
+    // Get embedding for text using the configured embedding model
+    async getEmbedding(text) {
+        if (!this.embedding_model) {
+            console.warn('No embedding model available');
+            return null;
+        }
+        
+        try {
+            // Using the embed method that exists in the model implementations
+            return await this.embedding_model.embed(text);
+        } catch (error) {
+            console.error('Error generating embedding:', error);
+            return null;
+        }
+    }
+    
+    // Store a new memory in the vector database
+    async storeMemory(text, metadata = {}) {
+        if (!this.vectorClient || !this.embedding_model) {
+            console.warn('Cannot store memory: Vector client or embedding model not available');
+            return false;
+        }
+        
+        try {
+            console.log(`Attempting to store memory: "${text.substring(0, 100)}..."`);
+            
+            // Generate embedding for the memory text
+            console.log('Generating embedding...');
+            const embedding = await this.getEmbedding(text);
+            if (!embedding || embedding.length === 0) {
+                console.warn('Failed to generate embedding for memory');
+                return false;
+            }
+            console.log(`Generated embedding (${embedding.length} dimensions)`);
+            
+            // Generate a unique ID (numeric timestamp instead of string)
+            const id = Date.now();
+            
+            // Store memory with metadata
+            console.log(`Storing to collection: ${this.collectionName}`);
+            await this.vectorClient.upsert(this.collectionName, {
+                points: [{
+                    id: id,
+                    vector: embedding,
+                    payload: {
+                        text: text,
+                        timestamp: new Date().toISOString(),
+                        ...metadata
+                    }
+                }]
+            });
+            
+            console.log(`✅ Successfully stored memory: "${text.substring(0, 50)}..."`);
+            return true;
+        } catch (error) {
+            console.error('Error storing memory:', error);
+            return false;
+        }
+    }
+
+    // Retrieve memories relevant to a query
+    async retrieveRelevantMemories(query, limit = 5) {
+        if (!this.vectorClient || !this.embedding_model) {
+            console.warn('Cannot retrieve memories: Vector client or embedding model not available');
+            return "No long-term memories available.";
+        }
+        
+        try {
+            console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
+            
+            // Generate embedding for the query
+            console.log('Generating query embedding...');
+            const queryEmbedding = await this.getEmbedding(query);
+            if (!queryEmbedding || queryEmbedding.length === 0) {
+                console.warn('Failed to generate embedding for query');
+                return "No long-term memories available.";
+            }
+            console.log(`Generated query embedding (${queryEmbedding.length} dimensions)`);
+            
+            // Search for similar memories
+            console.log(`Searching collection "${this.collectionName}" for ${limit} relevant memories...`);
+            const searchResults = await this.vectorClient.search(this.collectionName, {
+                vector: queryEmbedding,
+                limit: limit,
+                with_payload: true,
+                with_vectors: false
+            });
+            
+            console.log(`Found ${searchResults?.length || 0} memories`);
+            
+            if (!searchResults || searchResults.length === 0) {
+                return "No relevant long-term memories found.";
+            }
+            
+            // Format the results
+            let formattedResults = "Relevant long-term memories:\n\n";
+            
+            searchResults.forEach((result, index) => {
+                const memory = result.payload.text;
+                const timestamp = new Date(result.payload.timestamp).toLocaleString();
+                const score = result.score.toFixed(2);
+                
+                console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory.substring(0, 50)}..."`);
+                
+                formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
+                formattedResults += `Timestamp: ${timestamp}\n\n`;
+            });
+            
+            return formattedResults;
+        } catch (error) {
+            console.error('Error retrieving memories:', error);
+            return "Error retrieving long-term memories.";
+        }
+    }
+    
+    // Store important interaction as memory
+    async promptMemoryStorage(message, importance = "medium") {
+        if (!this.vectorClient || !this.embedding_model) {
+            console.warn('Cannot prompt memory storage: Vector client or embedding model not available');
+            return;
+        }
+        
+        console.log(`Processing message for memory storage (importance: ${importance}): "${message.substring(0, 100)}..."`);
+        
+        await this.checkCooldown();
+        let prompt = this.profile.memory_storage || 
+            `You are assisting an AI agent named $NAME by processing its experiences into memories.
+            
+            When processing an experience, you should:
+            1. Extract the key information that would be useful to remember
+            2. Summarize it concisely (max 1-2 sentences)
+            3. Format it in third person from the agent's perspective
+            
+            The agent's most recent experience is:
+            """
+            $EXPERIENCE
+            """
+            
+            Generate a concise third-person memory that captures the essential information. 
+            Don't explain your reasoning, just provide the memory directly.`;
+        
+        // Save the message content to be used by replaceStrings when it encounters $EXPERIENCE
+        let experienceContent = [{role: 'user', content: message}];
+        
+        // Apply all replacements through the central replacement method
+        prompt = await this.replaceStrings(prompt, experienceContent, null, experienceContent);
+        
+        // At this point, if $EXPERIENCE wasn't replaced properly (due to different format than expected)
+        // or if profile uses $MESSAGE instead, manually replace remaining placeholders
+        if (prompt.includes('$EXPERIENCE')) {
+            prompt = prompt.replace(/\$EXPERIENCE/g, message);
+        }
+        if (prompt.includes('$MESSAGE')) {
+            prompt = prompt.replace(/\$MESSAGE/g, message);
+        }
+        
+        console.log('Sending memory prompt for processing...');
+        const memoryText = await this.chat_model.sendRequest([], prompt);
+        
+        if (memoryText && memoryText.trim()) {
+            console.log(`Generated memory text: "${memoryText.trim()}"`);
+            const success = await this.storeMemory(memoryText.trim(), {
+                importance: importance,
+                source: "conversation"
+            });
+            
+            if (success) {
+                console.log('💾 Memory successfully stored in vector database');
+            } else {
+                console.warn('Failed to store memory in vector database');
+            }
+        } else {
+            console.warn('Generated empty memory text, nothing to store');
+        }
     }
 }

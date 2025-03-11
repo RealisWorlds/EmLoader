@@ -1,8 +1,8 @@
 export default 
 {
     "minecraft_version": "1.21.4", // supports up to 1.21.1
-    "host": "localhost",//"map.realismc.com", // or "localhost", "your.ip.address.here"
-    "port": process.env.MINECRAFT_PORT || 25565,
+    "host": "map.realismc.com",//"map.realismc.com",//"map.realismc.com", // or "localhost", "your.ip.address.here"
+    "port": process.env.MINECRAFT_PORT || 9683,
     "auth": "offline", // or "microsoft"
 
     // the mindserver manages all agents and hosts the UI

@@ -220,9 +220,130 @@ export async function executeCommand(agent, message) {
         if (numArgs !== numParams(command))
             return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
         else {
+            // Check if we have this command cached in Qdrant first
+            if (agent.prompter && agent.prompter.vectorClient) {
+                try {
+                    // Create a unique key for this command and its arguments
+                    const commandKey = `${command.name}:${parsed.args ? parsed.args.join(',') : ''}`;
+                    console.log(`Checking for cached command: ${commandKey}`);
+                    
+                    // Try to retrieve the cached result
+                    const cachedResult = await retrieveCachedCommand(agent.prompter.vectorClient, 
+                                                                     agent.prompter.collectionName + "_actions", 
+                                                                     commandKey);
+                    
+                    if (cachedResult) {
+                        console.log(`Found cached result for command: ${commandKey}`);
+                        return cachedResult;
+                    } else {
+                        console.log(`No cached result found for command: ${commandKey}`);
+                    }
+                } catch (error) {
+                    console.error('Error checking command cache:', error);
+                    // Continue with normal execution if cache check fails
+                }
+            }
+            
+            // Execute the command normally
             const result = await command.perform(agent, ...parsed.args);
+            
+            // Cache the result for future use
+            if (agent.prompter && agent.prompter.vectorClient && result) {
+                try {
+                    const commandKey = `${command.name}:${parsed.args ? parsed.args.join(',') : ''}`;
+                    await cacheCommandResult(agent.prompter.vectorClient, 
+                                           agent.prompter.collectionName + "_actions", 
+                                           commandKey, 
+                                           result);
+                } catch (error) {
+                    console.error('Error caching command result:', error);
+                }
+            }
+            
             return result;
         }
+    }
+}
+
+// Function to retrieve a cached command from Qdrant
+async function retrieveCachedCommand(client, collectionName, commandKey) {
+    try {
+        // Check if collection exists first
+        try {
+            await client.getCollection(collectionName);
+        } catch (error) {
+            // Collection doesn't exist yet
+            console.log(`Command cache collection ${collectionName} doesn't exist yet`);
+            return null;
+        }
+        
+        // Search for the exact command key
+        const results = await client.scroll(collectionName, {
+            filter: {
+                must: [
+                    {
+                        key: "commandKey",
+                        match: {
+                            value: commandKey
+                        }
+                    }
+                ]
+            },
+            limit: 1
+        });
+        
+        if (results && results.points && results.points.length > 0) {
+            const cachedCommand = results.points[0];
+            if (cachedCommand.payload && cachedCommand.payload.result) {
+                return cachedCommand.payload.result;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('Error retrieving cached command:', error);
+        return null;
+    }
+}
+
+// Function to cache a command result in Qdrant
+async function cacheCommandResult(client, collectionName, commandKey, result) {
+    try {
+        // Check if collection exists, create if it doesn't
+        try {
+            await client.getCollection(collectionName);
+            console.log(`Command cache collection ${collectionName} already exists.`);
+        } catch (error) {
+            // Collection doesn't exist, create it
+            console.log(`Creating command cache collection ${collectionName}`);
+            await client.createCollection(collectionName, {
+                vectors: {
+                    size: 4,  // Small vector size since we're using exact matching
+                    distance: 'Dot'
+                }
+            });
+        }
+        
+        // Generate a unique ID
+        const id = Date.now() + Math.floor(Math.random() * 1000);
+        
+        // Store command with result
+        await client.upsert(collectionName, {
+            points: [{
+                id: id,
+                vector: [0.1, 0.2, 0.3, 0.4],  // Placeholder vector since we're using exact matching
+                payload: {
+                    commandKey: commandKey,
+                    result: result,
+                    timestamp: new Date().toISOString()
+                }
+            }]
+        });
+        
+        console.log(`Cached command result for: ${commandKey}`);
+        return true;
+    } catch (error) {
+        console.error('Error caching command result:', error);
+        return false;
     }
 }
 
