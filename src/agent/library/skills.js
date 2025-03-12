@@ -622,7 +622,6 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         log(bot, `Used /setblock to place ${blockType} at ${target_dest}.`);
         return true;
     }
-
     
     let item_name = blockType;
     if (item_name == "redstone_wire")
@@ -977,12 +976,40 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
         log(bot, `Teleported to ${x}, ${y}, ${z}.`);
         return true;
     }
-    bot.pathfinder.setMovements(new pf.Movements(bot));
-    await bot.pathfinder.goto(new pf.goals.GoalNear(x, y, z, min_distance));
-    log(bot, `You have reached at ${x}, ${y}, ${z}.`);
-    return true;
+    
+    try {
+        bot.pathfinder.setMovements(new pf.Movements(bot));
+        await bot.pathfinder.goto(new pf.goals.GoalNear(x, y, z, min_distance));
+        log(bot, `You have reached at ${x}, ${y}, ${z}.`);
+        return true;
+    } catch (error) {
+        if (error.name === 'PathStopped') {
+            log(bot, `Could not find path to ${x}, ${y}, ${z}. Trying alternative approach...`);
+            
+            // Try a different approach - move a bit randomly first
+            const currentPos = bot.entity.position;
+            const randomOffset = Math.floor(Math.random() * 5) + 3; // Random offset between 3-7 blocks
+            const angle = Math.random() * Math.PI * 2;
+            const x = Math.floor(currentPos.x + Math.cos(angle) * randomOffset);
+            const z = Math.floor(currentPos.z + Math.sin(angle) * randomOffset);
+            
+            try {
+                // Try to move to an intermediate position first
+                await bot.pathfinder.goto(new pf.goals.GoalNear(x, currentPos.y, z, 1));
+                // Then try to get to the original destination
+                await bot.pathfinder.goto(new pf.goals.GoalNear(x, y, z, min_distance));
+                log(bot, `Reached destination ${x}, ${y}, ${z} using alternative path.`);
+                return true;
+            } catch (retryError) {
+                log(bot, `Failed to reach ${x}, ${y}, ${z} even with alternative path.`);
+                return false;
+            }
+        } else {
+            log(bot, `Error navigating to position: ${error.message}`);
+            return false;
+        }
+    }
 }
-
 export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64) {
     /**
      * Navigate to the nearest block of the given type.
@@ -993,7 +1020,7 @@ export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64
      * @returns {Promise<boolean>} true if the block was reached, false otherwise.
      * @example
      * await skills.goToNearestBlock(bot, "oak_log", 64, 2);
-     * **/
+     **/
     const MAX_RANGE = 512;
     if (range > MAX_RANGE) {
         log(bot, `Maximum search range capped at ${MAX_RANGE}. `);
@@ -1005,101 +1032,203 @@ export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64
         return false;
     }
     log(bot, `Found ${blockType} at ${block.position}.`);
-    await goToPosition(bot, block.position.x, block.position.y, block.position.z, min_distance);
-    return true;
-    
+    try {
+        bot.pathfinder.setMovements(new pf.Movements(bot));
+        await bot.pathfinder.goto(new pf.goals.GoalNear(block.position.x, block.position.y, block.position.z, min_distance));
+        log(bot, `You have reached the ${blockType}.`);
+        return true;
+    } catch (error) {
+        if (error.name === 'PathStopped') {
+            log(bot, `Could not find path to ${blockType}. Trying alternative approach...`);
+            
+            // Try a different approach - move to a position halfway between bot and target
+            const currentPos = bot.entity.position;
+            const halfwayX = Math.floor((currentPos.x + block.position.x) / 2);
+            const halfwayY = Math.floor((currentPos.y + block.position.y) / 2);
+            const halfwayZ = Math.floor((currentPos.z + block.position.z) / 2);
+            
+            try {
+                // Try moving halfway first
+                await bot.pathfinder.goto(new pf.goals.GoalNear(halfwayX, halfwayY, halfwayZ, 1));
+                // Then try to reach the original block
+                await bot.pathfinder.goto(new pf.goals.GoalNear(block.position.x, block.position.y, block.position.z, min_distance));
+                log(bot, `Reached the ${blockType} using alternative path.`);
+                return true;
+            } catch (retryError) {
+                log(bot, `Failed to reach ${blockType} even with alternative path.`);
+                return false;
+            }
+        } else {
+            log(bot, `Error navigating to ${blockType}: ${error.message}`);
+            return false;
+        }
+    }
 }
-
 export async function goToNearestEntity(bot, entityType, min_distance=2, range=64) {
     /**
      * Navigate to the nearest entity of the given type.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
-     * @param {string} entityType, the type of entity to navigate to.
+     * @param {string} entityType, the entity type to navigate to.
      * @param {number} min_distance, the distance to keep from the entity. Defaults to 2.
-     * @param {number} range, the range to look for the entity. Defaults to 64.
+     * @param {number} range, the range to search for entities. Defaults to 64.
      * @returns {Promise<boolean>} true if the entity was reached, false otherwise.
+     * @example
+     * await skills.goToNearestEntity(bot, "zombie", 5);
      **/
-    let entity = world.getNearestEntityWhere(bot, entity => entity.name === entityType, range);
+    const entity = world.getNearestEntity(bot, entityType, range);
     if (!entity) {
-        log(bot, `Could not find any ${entityType} in ${range} blocks.`);
+        log(bot, `Could not find ${entityType} within ${range} blocks.`);
         return false;
     }
-    let distance = bot.entity.position.distanceTo(entity.position);
-    log(bot, `Found ${entityType} ${distance} blocks away.`);
-    await goToPosition(bot, entity.position.x, entity.position.y, entity.position.z, min_distance);
-    return true;
+    try {
+        bot.pathfinder.setMovements(new pf.Movements(bot));
+        await bot.pathfinder.goto(new pf.goals.GoalFollow(entity, min_distance), true);
+        log(bot, `You have reached the ${entityType}.`);
+        return true;
+    } catch (error) {
+        if (error.name === 'PathStopped') {
+            log(bot, `Could not find path to ${entityType}. Trying alternative approach...`);
+            
+            try {
+                // Try to get closer, but not directly to the entity
+                const pos = entity.position;
+                const currentPos = bot.entity.position;
+                const angleToEntity = Math.atan2(pos.z - currentPos.z, pos.x - currentPos.x);
+                const distanceToEntity = currentPos.distanceTo(pos);
+                const moveDistance = Math.min(distanceToEntity - min_distance - 1, 10);
+                
+                if (moveDistance > 0) {
+                    const targetX = currentPos.x + Math.cos(angleToEntity) * moveDistance;
+                    const targetZ = currentPos.z + Math.sin(angleToEntity) * moveDistance;
+                    
+                    // Try to move to a position closer to the entity
+                    await bot.pathfinder.goto(new pf.goals.GoalNear(targetX, currentPos.y, targetZ, 1));
+                    // Then try to reach the entity again
+                    await bot.pathfinder.goto(new pf.goals.GoalFollow(entity, min_distance), true);
+                    log(bot, `Reached the ${entityType} using alternative path.`);
+                    return true;
+                }
+                return false;
+            } catch (retryError) {
+                log(bot, `Failed to reach ${entityType} even with alternative path.`);
+                return false;
+            }
+        } else {
+            log(bot, `Error navigating to ${entityType}: ${error.message}`);
+            return false;
+        }
+    }
 }
-
 export async function goToPlayer(bot, username, distance=3) {
     /**
      * Navigate to the given player.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
      * @param {string} username, the username of the player to navigate to.
-     * @param {number} distance, the goal distance to the player.
-     * @returns {Promise<boolean>} true if the player was found, false otherwise.
+     * @param {number} distance, the distance to keep from the player. Defaults to 3.
+     * @returns {Promise<boolean>} true if the player was reached, false otherwise.
      * @example
-     * await skills.goToPlayer(bot, "player");
+     * await skills.goToPlayer(bot, "notch", 3);
      **/
-
-    if (bot.modes.isOn('cheat')) {
-        bot.chat('/tp @s ' + username);
-        await delayCommand();
-        log(bot, `Teleported to ${username}.`);
-        return true;
-    }
-
-    bot.modes.pause('self_defense');
-    bot.modes.pause('cowardice');
-    let player = bot.players[username].entity
+    const player = bot.players[username].entity;
     if (!player) {
-        log(bot, `Could not find ${username}.`);
+        log(bot, `Could not find player ${username} in the world.`);
         return false;
     }
-
-    const move = new pf.Movements(bot);
-    bot.pathfinder.setMovements(move);
-    await bot.pathfinder.goto(new pf.goals.GoalFollow(player, distance), true);
-
-    log(bot, `You have reached ${username}.`);
+    
+    try {
+        let move = new pf.Movements(bot);
+        bot.pathfinder.setMovements(move);
+        await bot.pathfinder.goto(new pf.goals.GoalFollow(player, distance), true);
+        log(bot, `You have reached ${username}.`);
+        return true;
+    } catch (error) {
+        if (error.name === 'PathStopped') {
+            log(bot, `Could not find path to player ${username}. Trying alternative approach...`);
+            
+            try {
+                // Try to get closer with waypoints
+                const pos = player.position;
+                const currentPos = bot.entity.position;
+                const angleToPlayer = Math.atan2(pos.z - currentPos.z, pos.x - currentPos.x);
+                const distanceToPlayer = currentPos.distanceTo(pos);
+                const moveDistance = Math.min(distanceToPlayer * 0.7, 20);
+                
+                // Create a waypoint between the bot and player
+                const targetX = currentPos.x + Math.cos(angleToPlayer) * moveDistance;
+                const targetZ = currentPos.z + Math.sin(angleToPlayer) * moveDistance;
+                
+                await bot.pathfinder.goto(new pf.goals.GoalNear(targetX, currentPos.y, targetZ, 1));
+                await bot.pathfinder.goto(new pf.goals.GoalFollow(player, distance), true);
+                log(bot, `Reached player ${username} using alternative path.`);
+                return true;
+            } catch (retryError) {
+                log(bot, `Failed to reach player ${username} even with alternative path.`);
+                return false;
+            }
+        } else {
+            log(bot, `Error navigating to player ${username}: ${error.message}`);
+            return false;
+        }
+    }
 }
-
-
 export async function followPlayer(bot, username, distance=4) {
     /**
      * Follow the given player endlessly. Will not return until the code is manually stopped.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
      * @param {string} username, the username of the player to follow.
-     * @returns {Promise<boolean>} true if the player was found, false otherwise.
+     * @param {number} distance, the distance to keep from the player. Defaults to 4.
+     * @returns {Promise<boolean>} true if the player was followed, false otherwise.
      * @example
-     * await skills.followPlayer(bot, "player");
+     * await skills.followPlayer(bot, "notch", 3);
      **/
-    let player = bot.players[username].entity
-    if (!player)
+    const player = bot.players[username].entity;
+    if (!player) {
+        log(bot, `Could not find player ${username} in the world.`);
         return false;
-
-    const move = new pf.Movements(bot);
-    bot.pathfinder.setMovements(move);
-    bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
-    log(bot, `You are now actively following player ${username}.`);
-
-    while (!bot.interrupt_code) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        // in cheat mode, if the distance is too far, teleport to the player
-        if (bot.modes.isOn('cheat') && bot.entity.position.distanceTo(player.position) > 100 && player.isOnGround) {
-            await goToPlayer(bot, username);
-        }
-        if (bot.modes.isOn('unstuck')) {
-            const is_nearby = bot.entity.position.distanceTo(player.position) <= distance + 1;
-            if (is_nearby)
-                bot.modes.pause('unstuck');
-            else
-                bot.modes.unpause('unstuck');
-        }
     }
-    return true;
+    
+    try {
+        const move = new pf.Movements(bot);
+        bot.pathfinder.setMovements(move);
+        bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
+        
+        // Set up error handling for PathStopped
+        const pathErrorHandler = (err) => {
+            if (err && err.name === 'PathStopped') {
+                log(bot, 'Path was stopped during follow. Recalculating...');
+                setTimeout(() => {
+                    try {
+                        // Try to set a new goal after a brief delay
+                        bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
+                    } catch (error) {
+                        log(bot, `Error resetting follow goal: ${error.message}`);
+                    }
+                }, 1000);
+            }
+        };
+        
+        // Listen for pathfinder errors
+        bot.on('pathfinder_exception', pathErrorHandler);
+        
+        await new Promise((resolve) => {
+            // Check if following was stopped every second
+            const interval = setInterval(() => {
+                if (!bot.pathfinder.goal) {
+                    clearInterval(interval);
+                    // Clean up the error handler
+                    bot.removeListener('pathfinder_exception', pathErrorHandler);
+                    resolve();
+                }
+            }, 1000);
+        });
+        
+        log(bot, `Stopped following ${username}.`);
+        return true;
+    } catch (error) {
+        log(bot, `Error following player ${username}: ${error.message}`);
+        return false;
+    }
 }
-
-
 export async function moveAway(bot, distance) {
     /**
      * Move away from current position in any direction.
@@ -1113,26 +1242,40 @@ export async function moveAway(bot, distance) {
     let goal = new pf.goals.GoalNear(pos.x, pos.y, pos.z, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
     bot.pathfinder.setMovements(new pf.Movements(bot));
-
-    if (bot.modes.isOn('cheat')) {
-        const move = new pf.Movements(bot);
-        const path = await bot.pathfinder.getPathTo(move, inverted_goal, 10000);
-        let last_move = path.path[path.path.length-1];
-        console.log(last_move);
-        if (last_move) {
-            let x = Math.floor(last_move.x);
-            let y = Math.floor(last_move.y);
-            let z = Math.floor(last_move.z);
-            bot.chat('/tp @s ' + x + ' ' + y + ' ' + z);
-            await delayCommand();
-            return true;
+    try {
+        await bot.pathfinder.goto(inverted_goal);
+        let new_pos = bot.entity.position;
+        log(bot, `Moved away from nearest entity to ${new_pos}.`);
+        return true;
+    } catch (error) {
+        if (error.name === 'PathStopped') {
+            log(bot, `Could not find path away. Trying alternative approach...`);
+            
+            // Try a different approach - try smaller movements in random directions
+            for (let attempt = 0; attempt < 4; attempt++) {
+                const angle = Math.random() * Math.PI * 2;
+                const smallerDistance = Math.max(3, distance / 2);
+                const tempX = pos.x + Math.cos(angle) * smallerDistance;
+                const tempZ = pos.z + Math.sin(angle) * smallerDistance;
+                
+                try {
+                    // Try to move to a position closer to the entity
+                    await bot.pathfinder.goto(new pf.goals.GoalNear(tempX, pos.y, tempZ, 1));
+                    log(bot, `Moved away using alternative path.`);
+                    return true;
+                } catch (retryError) {
+                    // Continue trying other directions
+                    continue;
+                }
+            }
+            
+            log(bot, `Failed to move away even with alternative paths.`);
+            return false;
+        } else {
+            log(bot, `Error moving away: ${error.message}`);
+            return false;
         }
     }
-
-    await bot.pathfinder.goto(inverted_goal);
-    let new_pos = bot.entity.position;
-    log(bot, `Moved away from nearest entity to ${new_pos}.`);
-    return true;
 }
 
 export async function moveAwayFromEntity(bot, entity, distance=16) {
