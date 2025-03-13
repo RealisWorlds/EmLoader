@@ -261,18 +261,6 @@ export class Prompter {
             prompt = prompt.replaceAll('$CODE_DOCS', getSkillDocs());
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));       
-     
-        if (prompt.includes('$MEMORY'))
-            prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
-        if (prompt.includes('$TO_SUMMARIZE'))
-            prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
-        if (prompt.includes('$CONVO'))
-            prompt = prompt.replaceAll('$CONVO', 'Recent conversation:\n' + stringifyTurns(messages));
-        if (prompt.includes('$SELF_PROMPT')) {
-            // if active or paused, show the current goal
-            let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : '';
-            prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
-        }
         if (prompt.includes('$LONG_TERM_MEMORY')) {
             try {
                 if (messages && messages.length > 0) {
@@ -286,6 +274,17 @@ export class Prompter {
                 console.error('Error handling $LONG_TERM_MEMORY placeholder:', error);
                 prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "Error retrieving long-term memories.");
             }
+        }
+        if (prompt.includes('$MEMORY'))
+            prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
+        if (prompt.includes('$TO_SUMMARIZE'))
+            prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
+        if (prompt.includes('$CONVO'))
+            prompt = prompt.replaceAll('$CONVO', 'Recent conversation:\n' + stringifyTurns(messages));
+        if (prompt.includes('$SELF_PROMPT')) {
+            // if active or paused, show the current goal
+            let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : '';
+            prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
         }
         if (prompt.includes('$LAST_GOALS')) {
             let goal_text = '';
@@ -555,29 +554,28 @@ export class Prompter {
     async retrieveRelevantMemories(query, limit = 10) {
         if (!this.vectorClient || !this.embedding_model) {
             console.warn('Cannot retrieve memories: Vector client or embedding model not available');
-            return "No memory system available.";
+            return "No long-term memories available.";
         }
-
-        console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
         
         try {
-            // Generate query embedding
+            console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
+            
+            // Set flag to indicate this is a vector memory operation
+            this._isVectorMemoryOperation = true;
+            
+            // Generate embedding for the query
             console.log('Generating query embedding...');
             const queryEmbedding = await this.getEmbedding(query);
-            
-            if (!queryEmbedding) {
-                console.warn('Failed to generate embedding for memory query');
-                return "Unable to search long-term memories due to embedding generation failure.";
+            if (!queryEmbedding || queryEmbedding.length === 0) {
+                console.warn('Failed to generate embedding for query');
+                return "No long-term memories available.";
             }
+            console.log(`Generated query embedding (${queryEmbedding.length} dimensions)`);
             
-            console.log('Generated query embedding (' + queryEmbedding.length + ' dimensions)');
-            
-            // Search for relevant memories
-            console.log(`Searching collection "${this.agent.name}_memories" for ${limit} relevant memories...`);
-            
-            const searchResults = await this.vectorClient.search({
-                collection_name: `${this.agent.name}_memories`,
-                query_vector: queryEmbedding,
+            // Search for similar memories
+            console.log(`Searching collection "${this.collectionName}" for ${limit} relevant memories...`);
+            const searchResults = await this.vectorClient.search(this.collectionName, {
+                vector: queryEmbedding,
                 limit: limit,
                 with_payload: true,
                 with_vectors: false
@@ -589,59 +587,19 @@ export class Prompter {
                 return "No relevant long-term memories found.";
             }
             
-            // Define a high relevance threshold
-            const HIGH_RELEVANCE_THRESHOLD = 0.85;
-            
-            // Filter for only highly relevant results
-            const highlyRelevantResults = searchResults.filter(result => result.score >= HIGH_RELEVANCE_THRESHOLD);
-            
-            console.log(`Found ${highlyRelevantResults.length} highly relevant memories (score >= ${HIGH_RELEVANCE_THRESHOLD})`);
-            
-            // If no highly relevant memories found but we have some results, 
-            // return the top result to prevent empty memory responses
-            if (highlyRelevantResults.length === 0) {
-                // Instead of returning nothing, use the highest scoring memory if it's above a lower threshold
-                if (searchResults[0] && searchResults[0].score > 0.7) {
-                    console.log(`No highly relevant memories found, but using top result with score ${searchResults[0].score.toFixed(2)}`);
-                    const topResult = searchResults[0];
-                    let formattedResults = "Most relevant memory:\n\n";
-                    formattedResults += `Memory (relevance: ${topResult.score.toFixed(2)}):\n${topResult.payload.text}\n`;
-                    formattedResults += `Timestamp: ${new Date(topResult.payload.timestamp).toLocaleString()}\n\n`;
-                    return formattedResults;
-                }
-                return "No highly relevant long-term memories found.";
-            }
-            
             // Format the results
             let formattedResults = "Relevant long-term memories:\n\n";
             
-            // Add a try-catch block around the forEach to prevent disconnects on memory formatting errors
-            try {
-                highlyRelevantResults.forEach((result, index) => {
-                    if (!result || !result.payload || !result.payload.text) {
-                        console.warn(`Skipping malformed memory result at index ${index}`);
-                        return; // Skip this iteration
-                    }
-                    
-                    const memory = result.payload.text;
-                    let timestamp;
-                    try {
-                        timestamp = new Date(result.payload.timestamp).toLocaleString();
-                    } catch (e) {
-                        timestamp = "Unknown time";
-                    }
-                    const score = result.score.toFixed(2);
-                    
-                    console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory.substring(0, 50)}..."`);
-                    
-                    formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
-                    formattedResults += `Timestamp: ${timestamp}\n\n`;
-                });
-            } catch (formattingError) {
-                console.error('Error formatting memory results:', formattingError);
-                // Try to return a simpler format if there's an error
-                return "Found relevant memories but encountered an error during formatting. Please try again.";
-            }
+            searchResults.forEach((result, index) => {
+                const memory = result.payload.text;
+                const timestamp = new Date(result.payload.timestamp).toLocaleString();
+                const score = result.score.toFixed(2);
+                
+                console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory}..."`);
+                
+                formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
+                formattedResults += `Timestamp: ${timestamp}\n\n`;
+            });
             
             return formattedResults;
         } catch (error) {

@@ -6,7 +6,7 @@ import convoManager from './conversation.js';
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
-    if (agent.shut_up || !settings.narrate_behavior) return;
+    if (agent.shut_up || settings.narrate_behavior === false) return;
     agent.openChat(message);
 }
 

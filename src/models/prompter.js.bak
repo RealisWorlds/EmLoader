@@ -19,6 +19,8 @@ import { GroqCloudAPI } from './groq.js';
 import { HuggingFace } from './huggingface.js';
 import { Qwen } from "./qwen.js";
 import { Grok } from "./grok.js";
+import { DeepSeek } from './deepseek.js';
+import { OpenRouter } from './openrouter.js';
 
 export class Prompter {
     constructor(agent, fp) {
@@ -137,7 +139,7 @@ export class Prompter {
             else if (profile.model.includes('replicate/'))
                 profile.api = 'replicate';
             else if (profile.model.includes('mistralai/') || profile.model.includes("mistral/"))
-                profile.api = 'mistral';
+                model_profile.api = 'mistral';
             else if (profile.model.includes("groq/") || profile.model.includes("groqcloud/"))
                 profile.api = 'groq';
             else if (profile.model.includes('novita/'))
@@ -148,53 +150,45 @@ export class Prompter {
                 profile.api = 'xai';
             else if (profile.model.includes('deepseek'))
                 profile.api = 'deepseek';
-            else
-                profile.api = 'ollama'
+            else if (profile.model.includes('llama3'))
+                profile.api = 'ollama';
+            else 
+                throw new Error('Unknown model:', profile.model);
         }
-
-        // allow overriding via params
-        if (profile.params) {
-            if (profile.params.api) {
-                profile.api = profile.params.api;
-                delete profile.params.api;
-            }
-        }
-        if (!profile.params)
-            profile.params = {};
         return profile;
     }
 
     _createModel(profile) {
+        let model = null;
         if (profile.api === 'google')
-            return new Gemini(profile.model, profile.url, profile.params);
+            model = new Gemini(profile.model, profile.url, profile.params);
         else if (profile.api === 'openai')
-            return new GPT(profile.model, profile.url, profile.params);
-        else if (profile.api === 'ollama')
-            return new Local(profile.model, profile.url, profile.params);
+            model = new GPT(profile.model, profile.url, profile.params);
         else if (profile.api === 'anthropic')
-            return new Claude(profile.model, profile.url, profile.params);
+            model = new Claude(profile.model, profile.url, profile.params);
         else if (profile.api === 'replicate')
-            return new ReplicateAPI(profile.model, profile.url, profile.params);
-        else if (profile.api === 'openrouter')
-            return new GPT(profile.model, "https://openrouter.ai/api/v1", profile.params);
+            model = new ReplicateAPI(profile.model.replace('replicate/', ''), profile.url, profile.params);
+        else if (profile.api === 'ollama')
+            model = new Local(profile.model, profile.url, profile.params);
         else if (profile.api === 'mistral')
-            return new Mistral(profile.model, profile.url, profile.params);
-        else if (profile.api === 'novita')
-            return new Novita(profile.model, profile.url, profile.params);
-        else if (profile.api === 'deepseek')
-            return new HuggingFace(profile.model, profile.url, profile.params); // same api diff model
+            model = new Mistral(profile.model, profile.url, profile.params);
         else if (profile.api === 'groq')
-            return new GroqCloudAPI(profile.model, profile.url, profile.params);
-        else if (profile.api === 'qwen')
-            return new Qwen(profile.model, profile.url, profile.params);
-        else if (profile.api === 'xai')
-            return new Grok(profile.model, profile.url, profile.params);
+            model = new GroqCloudAPI(profile.model.replace('groq/', '').replace('groqcloud/', ''), profile.url, profile.params);
         else if (profile.api === 'huggingface')
-            return new HuggingFace(profile.model, profile.url, profile.params);
-        else {
-            // unrecognized, so assume local/ollama
-            return new Local(profile.model, profile.url, profile.params);
-        }
+            model = new HuggingFace(profile.model, profile.url, profile.params);
+        else if (profile.api === 'novita')
+            model = new Novita(profile.model.replace('novita/', ''), profile.url, profile.params);
+        else if (profile.api === 'qwen')
+            model = new Qwen(profile.model, profile.url, profile.params);
+        else if (profile.api === 'xai')
+            model = new Grok(profile.model, profile.url, profile.params);
+        else if (profile.api === 'deepseek')
+            model = new DeepSeek(profile.model, profile.url, profile.params);
+        else if (profile.api === 'openrouter')
+            model = new OpenRouter(profile.model.replace('openrouter/', ''), profile.url, profile.params);
+        else
+            throw new Error('Unknown API:', profile.api);
+        return model;
     }
 
     getName() {
@@ -202,7 +196,7 @@ export class Prompter {
     }
 
     getInitModes() {
-        return this.profile.init_modes || [];
+        return this.profile.modes;
     }
 
     async initExamples() {
@@ -260,10 +254,14 @@ export class Prompter {
         if (prompt.includes('$CODE_DOCS'))
             prompt = prompt.replaceAll('$CODE_DOCS', getSkillDocs());
         if (prompt.includes('$EXAMPLES') && examples !== null)
-            prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));       
-     
+            prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
+        if (prompt.includes('$LONG_TERM_MEMORY') && messages && messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            const relevantMemories = await this.retrieveRelevantMemories(lastMessage.content, 3);
+            prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
+        }
         if (prompt.includes('$TO_SUMMARIZE'))
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
         if (prompt.includes('$CONVO'))
@@ -272,20 +270,6 @@ export class Prompter {
             // if active or paused, show the current goal
             let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : '';
             prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
-        }
-        if (prompt.includes('$LONG_TERM_MEMORY')) {
-            try {
-                if (messages && messages.length > 0) {
-                    const lastMessage = messages[messages.length - 1];
-                    const relevantMemories = await this.retrieveRelevantMemories(lastMessage.content, 3);
-                    prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
-                } else {
-                    prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "No long-term memories available.");
-                }
-            } catch (error) {
-                console.error('Error handling $LONG_TERM_MEMORY placeholder:', error);
-                prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "Error retrieving long-term memories.");
-            }
         }
         if (prompt.includes('$LAST_GOALS')) {
             let goal_text = '';
@@ -412,18 +396,7 @@ export class Prompter {
 
     // Initialize vector database for long-term memory
     async initVectorMemory() {
-        // Initialize flags for vector memory and other embeddings
-        this.useVectorMemory = false;
-        this.useOtherEmbeddings = true;
-        
         try {
-            // Check if vector database should be disabled
-            if (this.profile.disableVectorDb === true) {
-                console.log('Vector database is disabled in profile settings');
-                this.vectorClient = null;
-                return;
-            }
-            
             // Default Qdrant settings - can be overridden in profile
             const qdrantConfig = this.profile.vectorDb || {
                 url: 'http://localhost:6333',
@@ -445,13 +418,6 @@ export class Prompter {
             try {
                 await this.vectorClient.getCollection(this.collectionName);
                 console.log(`Vector memory collection "${this.collectionName}" already exists.`);
-                this.useVectorMemory = true;
-                
-                // Disable other embeddings if configured
-                if (this.profile.disableOtherEmbeddingsWhenVectorDbAvailable === true) {
-                    console.log('Vector database is available - disabling other embeddings as configured');
-                    this.useOtherEmbeddings = false;
-                }
             } catch (error) {
                 // Collection doesn't exist, create it
                 console.log(`Creating vector memory collection "${this.collectionName}" with dimension ${vectorSize}`);
@@ -462,21 +428,12 @@ export class Prompter {
                     }
                 });
                 console.log(`Created vector memory collection "${this.collectionName}"`);
-                this.useVectorMemory = true;
-                
-                // Disable other embeddings if configured
-                if (this.profile.disableOtherEmbeddingsWhenVectorDbAvailable === true) {
-                    console.log('Vector database is available - disabling other embeddings as configured');
-                    this.useOtherEmbeddings = false;
-                }
             }
             
             console.log("Vector database initialized successfully.");
         } catch (error) {
             console.error('Failed to initialize vector memory:', error);
             this.vectorClient = null;
-            this.useVectorMemory = false;
-            this.useOtherEmbeddings = true;
         }
     }
     
@@ -487,17 +444,9 @@ export class Prompter {
             return null;
         }
         
-        // Check if other embeddings should be used
-        if (this.useVectorMemory && !this.useOtherEmbeddings && !this._isVectorMemoryOperation) {
-            console.log('Other embeddings disabled - skipping for non-vector memory operations');
-            return null;
-        }
-        
         try {
             // Using the embed method that exists in the model implementations
-            const result = await this.embedding_model.embed(text);
-            this._isVectorMemoryOperation = false; // Reset the flag after use
-            return result;
+            return await this.embedding_model.embed(text);
         } catch (error) {
             console.error('Error generating embedding:', error);
             return null;
@@ -513,9 +462,6 @@ export class Prompter {
         
         try {
             console.log(`Attempting to store memory: "${text.substring(0, 100)}..."`);
-            
-            // Set flag to indicate this is a vector memory operation
-            this._isVectorMemoryOperation = true;
             
             // Generate embedding for the memory text
             console.log('Generating embedding...');
@@ -555,29 +501,25 @@ export class Prompter {
     async retrieveRelevantMemories(query, limit = 10) {
         if (!this.vectorClient || !this.embedding_model) {
             console.warn('Cannot retrieve memories: Vector client or embedding model not available');
-            return "No memory system available.";
+            return "No long-term memories available.";
         }
-
-        console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
         
         try {
-            // Generate query embedding
+            console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
+            
+            // Generate embedding for the query
             console.log('Generating query embedding...');
             const queryEmbedding = await this.getEmbedding(query);
-            
-            if (!queryEmbedding) {
-                console.warn('Failed to generate embedding for memory query');
-                return "Unable to search long-term memories due to embedding generation failure.";
+            if (!queryEmbedding || queryEmbedding.length === 0) {
+                console.warn('Failed to generate embedding for query');
+                return "No long-term memories available.";
             }
+            console.log(`Generated query embedding (${queryEmbedding.length} dimensions)`);
             
-            console.log('Generated query embedding (' + queryEmbedding.length + ' dimensions)');
-            
-            // Search for relevant memories
-            console.log(`Searching collection "${this.agent.name}_memories" for ${limit} relevant memories...`);
-            
-            const searchResults = await this.vectorClient.search({
-                collection_name: `${this.agent.name}_memories`,
-                query_vector: queryEmbedding,
+            // Search for similar memories
+            console.log(`Searching collection "${this.collectionName}" for ${limit} relevant memories...`);
+            const searchResults = await this.vectorClient.search(this.collectionName, {
+                vector: queryEmbedding,
                 limit: limit,
                 with_payload: true,
                 with_vectors: false
@@ -589,59 +531,19 @@ export class Prompter {
                 return "No relevant long-term memories found.";
             }
             
-            // Define a high relevance threshold
-            const HIGH_RELEVANCE_THRESHOLD = 0.85;
-            
-            // Filter for only highly relevant results
-            const highlyRelevantResults = searchResults.filter(result => result.score >= HIGH_RELEVANCE_THRESHOLD);
-            
-            console.log(`Found ${highlyRelevantResults.length} highly relevant memories (score >= ${HIGH_RELEVANCE_THRESHOLD})`);
-            
-            // If no highly relevant memories found but we have some results, 
-            // return the top result to prevent empty memory responses
-            if (highlyRelevantResults.length === 0) {
-                // Instead of returning nothing, use the highest scoring memory if it's above a lower threshold
-                if (searchResults[0] && searchResults[0].score > 0.7) {
-                    console.log(`No highly relevant memories found, but using top result with score ${searchResults[0].score.toFixed(2)}`);
-                    const topResult = searchResults[0];
-                    let formattedResults = "Most relevant memory:\n\n";
-                    formattedResults += `Memory (relevance: ${topResult.score.toFixed(2)}):\n${topResult.payload.text}\n`;
-                    formattedResults += `Timestamp: ${new Date(topResult.payload.timestamp).toLocaleString()}\n\n`;
-                    return formattedResults;
-                }
-                return "No highly relevant long-term memories found.";
-            }
-            
             // Format the results
             let formattedResults = "Relevant long-term memories:\n\n";
             
-            // Add a try-catch block around the forEach to prevent disconnects on memory formatting errors
-            try {
-                highlyRelevantResults.forEach((result, index) => {
-                    if (!result || !result.payload || !result.payload.text) {
-                        console.warn(`Skipping malformed memory result at index ${index}`);
-                        return; // Skip this iteration
-                    }
-                    
-                    const memory = result.payload.text;
-                    let timestamp;
-                    try {
-                        timestamp = new Date(result.payload.timestamp).toLocaleString();
-                    } catch (e) {
-                        timestamp = "Unknown time";
-                    }
-                    const score = result.score.toFixed(2);
-                    
-                    console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory.substring(0, 50)}..."`);
-                    
-                    formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
-                    formattedResults += `Timestamp: ${timestamp}\n\n`;
-                });
-            } catch (formattingError) {
-                console.error('Error formatting memory results:', formattingError);
-                // Try to return a simpler format if there's an error
-                return "Found relevant memories but encountered an error during formatting. Please try again.";
-            }
+            searchResults.forEach((result, index) => {
+                const memory = result.payload.text;
+                const timestamp = new Date(result.payload.timestamp).toLocaleString();
+                const score = result.score.toFixed(2);
+                
+                console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory.substring(0, 50)}..."`);
+                
+                formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
+                formattedResults += `Timestamp: ${timestamp}\n\n`;
+            });
             
             return formattedResults;
         } catch (error) {
@@ -661,10 +563,19 @@ export class Prompter {
         
         await this.checkCooldown();
         let prompt = this.profile.memory_storage || 
-            `You are $NAME and are processing your experience into memory to recall later, Add details that will help you remember the experience. When someone asks you about the past you need to write in a way where you will remember easily.            
+            `You are assisting an AI agent named $NAME by processing its experiences into memories.
+            
+            When processing an experience, you should:
+            1. Extract the key information that would be useful to remember
+            2. Summarize it concisely (max 1-2 sentences)
+            3. Format it in third person from the agent's perspective
+            
+            The agent's most recent experience is:
             """
             $EXPERIENCE
             """
+            
+            Generate a concise third-person memory that captures the essential information. 
             Don't explain your reasoning, just provide the memory directly.`;
         
         // Save the message content to be used by replaceStrings when it encounters $EXPERIENCE
