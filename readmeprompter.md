@@ -131,7 +131,7 @@ graph TD
     G --> H{Results Found?}
     H -->|No| I[Return "No memories found"]
     H -->|Yes| J[Filter for High Relevance]
-    J --> K{High Relevance Results?}
+    J --> K[{High Relevance Results?]
     K -->|No| L[Check Top Result]
     K -->|Yes| M[Format Relevant Memories]
     L --> N{Score > 0.7?}
