@@ -123,20 +123,20 @@ graph TD
 ```mermaid
 graph TD
     A[retrieveRelevantMemories] --> B{Vector Client Available?}
-    B -->|No| C[Return "No memory system"]
+    B -->|No| C[Return No memory system]
     B -->|Yes| D[Generate Query Embedding]
     D --> E{Embedding Generated?}
     E -->|No| F[Return error message]
     E -->|Yes| G[Search Vector Collection]
     G --> H{Results Found?}
-    H -->|No| I[Return "No memories found"]
+    H -->|No| I[Return No memories found]
     H -->|Yes| J[Filter for High Relevance]
     J --> K{High Relevance Results?}
     K -->|No| L[Check Top Result]
     K -->|Yes| M[Format Relevant Memories]
     L --> N{Score > 0.7?}
     N -->|Yes| O[Return Top Result]
-    N -->|No| P[Return "No highly relevant memories"]
+    N -->|No| P[Return No highly relevant memories]
     M & O --> Q[Return Formatted Results]
 ```
 
