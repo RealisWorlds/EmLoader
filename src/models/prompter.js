@@ -114,8 +114,24 @@ export class Prompter {
             this.embedding_model = null;
         }
         
-        // Initialize memory system
-        this.memory = new MemoryManager(this.agent, this.embedding_model, memory);
+        // Initialize memory system with proper configuration
+        const vectorDbConfig = this.profile.vectorDb || {};
+        const collectionName = vectorDbConfig.collectionName || `${this.agent.name}_memories`;
+        const vectorDbUrl = vectorDbConfig.url || 'http://localhost:6333';
+        const vectorSize = vectorDbConfig.vectorSize || null;
+        
+        console.log('Initializing memory system with collection:', collectionName);
+        this.memory = new MemoryManager(
+            this.embedding_model, 
+            vectorDbUrl,
+            {
+                collectionName: collectionName,
+                vectorSize: vectorSize
+            }
+        );
+        
+        // Initialize vector memory after creation
+        this.memory.initVectorMemory();
 
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);
         mkdirSync(`./bots/${name}`, { recursive: true });
@@ -287,7 +303,11 @@ export class Prompter {
                 if (messages && messages.length > 0) {
                     const lastMessage = messages[messages.length - 1];
                     const relevantMemories = await this.memory.retrieveRelevantMemories(lastMessage.content, 3);
-                    prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
+                    if (relevantMemories) {
+                        prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
+                    } else {
+                        prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "No long-term memories available.");
+                    }
                 } else {
                     prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "No long-term memories available.");
                 }

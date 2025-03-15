@@ -29,7 +29,7 @@ export class ActionManager {
         while (this.executing) {
             this.agent.requestInterrupt();
             console.log('waiting for code to finish executing...');
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 10));
         }
         clearTimeout(timeout);
     } 

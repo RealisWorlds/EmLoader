@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { hasKey } from '../utils/keys.js';
 
 /**
  * Memory Management System
@@ -8,114 +9,270 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 export class MemoryManager {
     /**
      * Create a memory manager
-     * @param {Object} agent - The agent this memory manager belongs to
-     * @param {Object} embedding_model - The embedding model to use for vector encoding
+     * @param {Object} embedding_model_or_agent - The agent this memory manager belongs to or directly the embedding model
+     * @param {Object|string} vectorDbUrl_or_embedding_model - The embedding model or the URL of the vector database
+     * @param {Object} options - Additional options
+     * @param {string} options.collectionName - The name of the collection to use
+     * @param {number} options.vectorSize - The size of the vectors
      */
-    constructor(agent, embedding_model) {
-        this.agent = agent;
-        this.embedding_model = embedding_model;
-        this.collectionName = `${agent.name}_memories`;
-        this.vectorClient = null;
-        this._isVectorMemoryOperation = false;
+    constructor(embedding_model_or_agent, vectorDbUrl_or_embedding_model, options = {}) {
+        // Support the old constructor pattern where the first argument is an agent
+        if (embedding_model_or_agent && embedding_model_or_agent.prompter) {
+            // Old pattern: constructor(agent, embedding_model)
+            const agent = embedding_model_or_agent;
+            const embedding_model = vectorDbUrl_or_embedding_model;
+            
+            // Store agent reference for backward compatibility
+            this.agent = agent;
+            
+            // Extract configuration from agent's profile
+            const profile = agent.prompter?.profile || {};
+            const vectorDbConfig = profile.vectorDb || {};
+            
+            // Use values from profile or fallback to defaults
+            this.embedding_model = embedding_model;
+            this.vectorDbUrl = vectorDbConfig.url || 'http://localhost:6333';
+            this.collectionName = vectorDbConfig.collectionName || `${agent.name}_memories`;
+            this.vectorSize = vectorDbConfig.vectorSize || null;
+            this._isVectorMemoryOperation = false;
+            
+            console.log(`MemoryManager initialized with collection name: ${this.collectionName} (agent-based pattern)`);
+        } else {
+            // New pattern: constructor(embedding_model, vectorDbUrl, options)
+            this.agent = null; // No agent in the new pattern
+            this.embedding_model = embedding_model_or_agent;
+            this.vectorDbUrl = vectorDbUrl_or_embedding_model || 'http://localhost:6333';
+            this.collectionName = options.collectionName || 'default_memory';
+            this.vectorSize = options.vectorSize || null;
+            this._isVectorMemoryOperation = false;
+
+            console.log(`MemoryManager initialized with collection name: ${this.collectionName}`);
+        }
+        
+        // Initialize the vector client
+        this.vectorClient = new QdrantClient({ 
+            url: this.vectorDbUrl 
+        });
         
         // Initialize the vector database
-        this.initVectorMemory();
+        this.initVectorMemory().catch(err => {
+            console.error('Error during memory system initialization:', err);
+        });
     }
 
     /**
      * Initialize the vector memory database
+     * @returns {Promise<boolean>} Success status
      */
     async initVectorMemory() {
         try {
             if (!this.embedding_model) {
                 console.warn('No embedding model available for vector memory');
-                return;
+                return false;
             }
             
-            // Initialize Qdrant client
-            this.vectorClient = new QdrantClient({ 
-                url: 'http://localhost:6333' 
-            });
-            
-            // Get embedding dimension from model
-            const sampleEmbedding = await this.getEmbedding("Hello world");
-            if (!sampleEmbedding) {
-                console.error('Failed to generate sample embedding for memory initialization');
-                return;
+            // Verify connection to Qdrant
+            console.log(`Testing connection to Qdrant vector database...`);
+            await this.verifyVectorDbConnection();
+
+            // Ensure we have a valid collection name
+            if (!this.collectionName) {
+                console.warn('No collection name specified, using default');
+                this.collectionName = 'default_memory';
+            }
+
+            // Get embedding dimension from model or use predefined size from profile
+            let embeddingSize = this.vectorSize;
+            if (!embeddingSize) {
+                try {
+                    const sampleEmbedding = await this.getEmbedding('Sample text for dimension check');
+                    embeddingSize = sampleEmbedding.length;
+                } catch (err) {
+                    embeddingSize = 1536; // Default to 1536 if we can't determine vector size
+                    console.warn('Could not determine embedding dimension, using default:', embeddingSize);
+                }
             }
             
-            const embeddingSize = sampleEmbedding.length;
             console.log(`Using ${embeddingSize}-dimensional embeddings for memory storage`);
             
             // Check if collection exists and create if it doesn't
             try {
-                await this.vectorClient.getCollection(this.collectionName);
-                console.log(`Memory collection ${this.collectionName} already exists`);
-            } catch (err) {
-                console.log(`Creating memory collection ${this.collectionName}...`);
+                // First check if the collection exists by listing all collections
+                const collections = await this.vectorClient.getCollections();
+                console.log('Available collections:', collections.collections.map(c => c.name).join(', '));
                 
-                await this.vectorClient.createCollection(this.collectionName, {
-                    vectors: {
-                        size: embeddingSize,
-                        distance: 'Cosine'
-                    },
-                    optimizers_config: {
-                        default_segment_number: 2
+                const collectionExists = collections.collections.some(
+                    collection => collection.name === this.collectionName
+                );
+                
+                if (!collectionExists) {
+                    console.log(`Creating memory collection ${this.collectionName}...`);
+                    try {
+                        // Create the collection with standard API
+                        await this.vectorClient.createCollection(this.collectionName, {
+                            vectors: {
+                                size: embeddingSize,
+                                distance: "Cosine"
+                            }
+                        });
+                        console.log(`Memory collection ${this.collectionName} created`);
+                    } catch (createError) {
+                        // Try alternative API format as fallback for older versions
+                        try {
+                            await this.vectorClient.createCollection({
+                                collection_name: this.collectionName,
+                                vectors: {
+                                    size: embeddingSize,
+                                    distance: "Cosine"
+                                }
+                            });
+                            console.log(`Memory collection ${this.collectionName} created (using alternative API format)`);
+                        } catch (altCreateError) {
+                            console.error('Failed to create collection with both API formats:', altCreateError);
+                            throw altCreateError;
+                        }
                     }
-                });
-                
-                console.log(`Memory collection ${this.collectionName} created`);
+                } else {
+                    console.log(`Memory collection ${this.collectionName} already exists`);
+                }
+            } catch (error) {
+                console.error('Error checking/creating collection:', error);
+                throw error;
             }
-        } catch (err) {
-            console.error('Failed to initialize vector memory:', err);
-            this.vectorClient = null;
+            
+            // Save the vector size for future reference
+            this.vectorSize = embeddingSize;
+            
+            return true;
+        } catch (error) {
+            console.error('Failed to initialize vector memory:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Verify connection to Qdrant vector database
+     * @returns {Promise<boolean>} - True if connection successful
+     */
+    async verifyVectorDbConnection() {
+        try {
+            console.log('Testing connection to Qdrant vector database...');
+            
+            // List collections to verify connectivity (using getCollections method)
+            const collectionsResponse = await this.vectorClient.getCollections();
+            console.log('Successfully connected to Qdrant.');
+            
+            if (collectionsResponse && Array.isArray(collectionsResponse.collections)) {
+                const collectionNames = collectionsResponse.collections.map(c => c.name);
+                console.log('Available collections:', collectionNames.join(', ') || 'None');
+            } else {
+                console.log('No collections found or unexpected response format');
+            }
+            
+            // Verify credentials and API key setup if using OpenAI embeddings
+            const embeddingModelType = this.embedding_model?.constructor?.name;
+            if (embeddingModelType === 'GPT' && !hasKey('OPENAI_API_KEY')) {
+                console.error('WARNING: Using OpenAI embeddings but OPENAI_API_KEY is not set!');
+                console.error('Memory collections will fail to create without a valid API key.');
+                return false;
+            }
+            
+            return true;
+        } catch (error) {
+            console.error('Failed to connect to Qdrant vector database:', error);
+            console.error('Please check that Qdrant is running and accessible at:', this.vectorDbUrl);
+            return false;
         }
     }
 
     /**
      * Generate an embedding vector for text
-     * @param {string} text - Text to generate an embedding for
-     * @returns {Array<number>|null} - Embedding vector or null if failed
+     * @param {string} text - Text to embed
+     * @returns {Promise<number[]>} - Embedding vector or null if not available
      */
     async getEmbedding(text) {
         if (!this.embedding_model) {
+            console.warn('No embedding model available for vector memory');
             return null;
         }
         
+        // Set flag to track vector memory operations
+        this._isVectorMemoryOperation = true;
+        
         try {
-            // Set flag to indicate this is a vector memory operation
-            this._isVectorMemoryOperation = true;
+            console.log('Generating embedding using', this.embedding_model.constructor.name);
             
-            // Get embedding
-            const embedding = await this.embedding_model.getEmbedding(text);
+            // Try different embedding methods based on model type
+            let embedding = null;
             
-            // Reset flag
-            this._isVectorMemoryOperation = false;
+            // First try getEmbedding (our standard method)
+            if (typeof this.embedding_model.getEmbedding === 'function') {
+                console.log('Using getEmbedding method');
+                embedding = await this.embedding_model.getEmbedding(text);
+            } 
+            // Fall back to embed method
+            else if (typeof this.embedding_model.embed === 'function') {
+                console.log('Using embed method');
+                embedding = await this.embedding_model.embed(text);
+            }
+            // Fall back to createEmbedding method (for some API clients)
+            else if (typeof this.embedding_model.createEmbedding === 'function') {
+                console.log('Using createEmbedding method');
+                embedding = await this.embedding_model.createEmbedding(text);
+            }
             
+            if (!embedding) {
+                throw new Error('No valid embedding method available on model');
+            }
+            
+            console.log(`Successfully generated embedding (${embedding.length} dimensions)`);
             return embedding;
         } catch (error) {
             console.error('Error generating embedding:', error);
             
+            // If error contains response data, log it for debugging
+            if (error.response) {
+                console.error('Error response:', error.response.status, error.response.data);
+            }
+            
             // Reset flag
             this._isVectorMemoryOperation = false;
             
+            // Show guidance message
+            console.error('Please check that your API keys are correctly configured in keys.json or environment variables.');
+            console.error('For OpenAI, ensure OPENAI_API_KEY is set correctly.');
+            
+            // Validate API key
+            if (!hasKey('OPENAI_API_KEY')) {
+                console.error('OPENAI_API_KEY is not set. Please set it in keys.json or environment variables.');
+            }
+            
             return null;
+        } finally {
+            // Always reset the flag when done to prevent side effects
+            this._isVectorMemoryOperation = false;
         }
     }
 
     /**
-     * Store memory with structured metadata
-     * @param {string} text - Memory text content
-     * @param {Object} metadata - Additional metadata for the memory 
-     * @returns {boolean} - Success or failure
+     * Store a memory in the vector database
+     * @param {string} text - Memory text to store
+     * @param {Object} metadata - Additional metadata for the memory
+     * @returns {Promise<boolean>} - Success status
      */
     async storeMemory(text, metadata = {}) {
         if (!this.vectorClient || !this.embedding_model) {
             console.warn('Cannot store memory: Vector client or embedding model not available');
             return false;
         }
-
-        console.log(`Storing memory: "${text.substring(0, 100)}..."`);
+        
+        // First make sure the collection exists
+        try {
+            await this.ensureCollectionExists();
+        } catch (err) {
+            console.error('Cannot store memory: Failed to ensure collection exists:', err);
+            return false;
+        }
         
         try {
             // Generate a unique ID for this memory
@@ -130,34 +287,140 @@ export class MemoryManager {
                 return false;
             }
             
-            console.log('Generated memory embedding (' + embedding.length + ' dimensions)');
+            console.log(`Generated memory embedding (${embedding.length} dimensions)`);
             
             // Store memory with enhanced structured metadata
-            await this.vectorClient.upsert(this.collectionName, {
-                points: [{
-                    id: id,
-                    vector: embedding,
-                    payload: {
-                        text: text,
-                        timestamp: new Date().toISOString(),
-                        last_accessed: new Date().toISOString(),
-                        access_count: 0,
-                        type: metadata.type || 'general',
-                        importance: metadata.importance || 'medium',
-                        source: metadata.source || 'unknown',
-                        entities: metadata.entities || [],
-                        context: metadata.context || {},
-                        related_memories: metadata.related_memories || [],
-                        tags: metadata.tags || []
-                    }
-                }]
-            });
+            const point = {
+                id: id,
+                vector: embedding,
+                payload: {
+                    text: text,
+                    timestamp: new Date().toISOString(),
+                    last_accessed: new Date().toISOString(),
+                    access_count: 0,
+                    type: metadata.type || 'general',
+                    importance: metadata.importance || 'medium',
+                    source: metadata.source || 'unknown',
+                    entities: metadata.entities || [],
+                    context: metadata.context || {},
+                    related_memories: metadata.related_memories || [],
+                    tags: metadata.tags || []
+                }
+            };
             
-            console.log(`Memory stored successfully with ID ${id}`);
-            return true;
+            // Log the point we're inserting (for debugging)
+            console.log(`Storing memory to collection "${this.collectionName}"...`);
+            console.log('Memory ID:', id);
+            console.log('Memory text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
+            
+            // Try to upsert with all known API formats
+            let success = false;
+            
+            // Format 1: Standard REST API format (newer versions)
+            try {
+                await this.vectorClient.upsert(this.collectionName, {
+                    points: [point]
+                });
+                console.log(`Memory stored successfully with ID ${id}`);
+                success = true;
+            } catch (error1) {
+                console.warn('First upsert attempt failed:', error1.message);
+                
+                // Format 2: Object-based format (some versions)
+                try {
+                    await this.vectorClient.upsert({
+                        collection_name: this.collectionName,
+                        points: [point]
+                    });
+                    console.log(`Memory stored successfully with ID ${id} (format 2)`);
+                    success = true;
+                } catch (error2) {
+                    console.warn('Second upsert attempt failed:', error2.message);
+                    
+                    // Format 3: Using client.points() (older versions)
+                    try {
+                        const pointsInterface = this.vectorClient.points(this.collectionName);
+                        await pointsInterface.upsert([point]);
+                        console.log(`Memory stored successfully with ID ${id} (format 3)`);
+                        success = true;
+                    } catch (error3) {
+                        console.error('All upsert attempts failed. Details:', {
+                            error1: error1.message,
+                            error2: error2.message,
+                            error3: error3.message
+                        });
+                    }
+                }
+            }
+            
+            return success;
         } catch (error) {
             console.error('Error storing memory:', error);
             return false;
+        }
+    }
+    
+    /**
+     * Ensure the collection exists before trying to use it
+     * @private
+     */
+    async ensureCollectionExists() {
+        try {
+            // Check if collection exists
+            const collections = await this.vectorClient.getCollections();
+            const collectionExists = collections.collections.some(
+                collection => collection.name === this.collectionName
+            );
+            
+            if (!collectionExists) {
+                // Determine vector size if not already set
+                if (!this.vectorSize) {
+                    try {
+                        const sampleEmbedding = await this.getEmbedding('Sample text for dimension check');
+                        this.vectorSize = sampleEmbedding.length;
+                        console.log(`Determined vector size: ${this.vectorSize} dimensions`);
+                    } catch (err) {
+                        console.warn('Could not determine embedding dimension, using default: 1536');
+                        this.vectorSize = 1536;
+                    }
+                }
+                
+                console.log(`Creating collection "${this.collectionName}" with ${this.vectorSize} dimensions...`);
+                
+                // Try different API formats for collection creation
+                try {
+                    await this.vectorClient.createCollection(this.collectionName, {
+                        vectors: {
+                            size: this.vectorSize,
+                            distance: "Cosine"
+                        }
+                    });
+                    console.log(`Collection "${this.collectionName}" created successfully`);
+                } catch (err1) {
+                    console.log('First creation attempt failed, trying alternative API format:', err1.message);
+                    
+                    try {
+                        await this.vectorClient.createCollection({
+                            collection_name: this.collectionName,
+                            vectors: {
+                                size: this.vectorSize,
+                                distance: "Cosine"
+                            }
+                        });
+                        console.log(`Collection "${this.collectionName}" created successfully (format 2)`);
+                    } catch (err2) {
+                        console.error('Failed to create collection:', err2.message);
+                        throw new Error('Could not create collection');
+                    }
+                }
+            } else {
+                console.log(`Collection "${this.collectionName}" already exists`);
+            }
+            
+            return true;
+        } catch (err) {
+            console.error('Error ensuring collection exists:', err);
+            throw err;
         }
     }
 
@@ -166,6 +429,10 @@ export class MemoryManager {
      * @param {string} query - Query to search for
      * @param {number} limit - Maximum number of results to return
      * @param {Object} options - Filter options
+     * @param {number} options.relevanceThreshold - Minimum relevance score (0-1) for memories to be included
+     * @param {number} options.fallbackThreshold - Lower threshold to use if no memories meet the primary threshold
+     * @param {string[]} options.filterTags - Only include memories with these tags
+     * @param {string} options.filterType - Only include memories of this type
      * @returns {string} - Formatted memory results
      */
     async retrieveRelevantMemories(query, limit = 10, options = {}) {
@@ -173,110 +440,311 @@ export class MemoryManager {
             console.warn('Cannot retrieve memories: Vector client or embedding model not available');
             return "No memory system available.";
         }
-
-        console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
+        
+        // Set default thresholds - use 0.45 as primary threshold as per user preference
+        const primaryThreshold = options.relevanceThreshold || 0.45;  // High threshold by default (user preference)
+        const fallbackThreshold = options.fallbackThreshold || 0.70;  // Lower threshold as fallback
         
         try {
-            // Generate query embedding
+            console.log(`Retrieving memories relevant to: "${query.substring(0, 50)}..."`);
+            console.log(`Using collection: "${this.collectionName}"`);
+            
+            // Generate embedding for query
             console.log('Generating query embedding...');
             const queryEmbedding = await this.getEmbedding(query);
             
             if (!queryEmbedding) {
-                console.warn('Failed to generate embedding for memory query');
-                return "Unable to search long-term memories due to embedding generation failure.";
+                console.error('Failed to generate embedding for query');
+                return "Error retrieving long-term memories.";
             }
             
-            console.log('Generated query embedding (' + queryEmbedding.length + ' dimensions)');
+            console.log(`Generated query embedding (${queryEmbedding.length} dimensions)`);
             
-            // Build search filters based on options
-            let filter = null;
-            if (options.type || options.importance || options.timeframe) {
-                filter = { must: [] };
-                
-                if (options.type) {
-                    filter.must.push({
-                        key: 'type',
-                        match: { value: options.type }
-                    });
-                }
-                
-                if (options.importance) {
-                    filter.must.push({
-                        key: 'importance',
-                        match: { value: options.importance }
-                    });
-                }
-                
-                if (options.timeframe) {
-                    // Convert timeframe to date range
-                    const now = new Date();
-                    let startDate = new Date();
-                    
-                    if (options.timeframe === 'recent') {
-                        startDate.setDate(now.getDate() - 7); // Last week
-                    } else if (options.timeframe === 'medium') {
-                        startDate.setMonth(now.getMonth() - 3); // Last 3 months
-                    } else if (options.timeframe === 'old') {
-                        startDate.setFullYear(now.getFullYear() - 1); // Last year
-                    }
-                    
-                    filter.must.push({
-                        key: 'timestamp',
-                        range: {
-                            gte: startDate.toISOString()
-                        }
-                    });
-                }
+            // Set up search filters based on options
+            const filter = {};
+            if (options.filterTags && options.filterTags.length > 0) {
+                filter['metadata.tags'] = { $in: options.filterTags };
+            }
+            if (options.filterType) {
+                filter['metadata.type'] = options.filterType;
             }
             
-            // Search for relevant memories with optional filtering
+            // Search for memories with primary threshold
             console.log(`Searching collection "${this.collectionName}" for ${limit} relevant memories...`);
+            console.log(`Using primary relevance threshold: ${primaryThreshold}`);
             
-            const searchResults = await this.vectorClient.search({
-                collection_name: this.collectionName,
-                query_vector: queryEmbedding,
-                limit: limit,
-                filter: filter,
-                with_payload: true,
-                with_vectors: false
-            });
-            
-            console.log(`Found ${searchResults?.length || 0} memories`);
-            
-            if (!searchResults || searchResults.length === 0) {
-                return "No relevant long-term memories found.";
-            }
-            
-            // Define a high relevance threshold
-            const HIGH_RELEVANCE_THRESHOLD = 0.85; // Keeping the customized high threshold
-            
-            // Filter for only highly relevant results
-            const highlyRelevantResults = searchResults.filter(result => result.score >= HIGH_RELEVANCE_THRESHOLD);
-            
-            console.log(`Found ${highlyRelevantResults.length} highly relevant memories (score >= ${HIGH_RELEVANCE_THRESHOLD})`);
-            
-            // Update access metadata for retrieved memories
-            this._updateMemoryAccessMetadata(highlyRelevantResults.length > 0 ? 
-                highlyRelevantResults.map(r => r.id) : 
-                [searchResults[0].id]);
-            
-            // If no highly relevant memories found but we have some results, 
-            // return the top result to prevent empty memory responses
-            if (highlyRelevantResults.length === 0) {
-                // Instead of returning nothing, use the highest scoring memory if it's above a lower threshold
-                if (searchResults[0] && searchResults[0].score > 0.7) {
-                    console.log(`No highly relevant memories found, but using top result with score ${searchResults[0].score.toFixed(2)}`);
-                    const topResult = searchResults[0];
-                    return this._formatStructuredMemory(topResult, true);
+            // Get information about the collection
+            try {
+                const collectionInfo = await this.vectorClient.getCollection(this.collectionName);
+                console.log(`Collection status: ${collectionInfo.status}, points: ${collectionInfo.points_count}`);
+                
+                if (collectionInfo.points_count === 0) {
+                    return "No memories found in collection.";
                 }
-                return "No highly relevant long-term memories found.";
+            } catch (err) {
+                console.warn("Could not get collection info:", err.message);
             }
             
-            // Format the results in a structured way
-            return this._formatStructuredMemories(highlyRelevantResults);
+            // Try all possible search API formats
+            let searchResults = null;
+            let searchError = null;
+            
+            // Format 1: Standard API (collection name first, then params)
+            try {
+                searchResults = await this.vectorClient.search(this.collectionName, {
+                    vector: queryEmbedding,
+                    limit: limit * 2, 
+                    filter: Object.keys(filter).length > 0 ? filter : undefined,
+                    with_payload: true,
+                    score_threshold: fallbackThreshold  // Use the lower threshold here and filter later
+                });
+                console.log(`Search successful using format 1, found ${searchResults.length} results`);
+            } catch (error1) {
+                console.warn('Search format 1 failed:', error1.message);
+                searchError = error1;
+                
+                // Format 2: Object-based API (all params in one object)
+                try {
+                    searchResults = await this.vectorClient.search({
+                        collection_name: this.collectionName,
+                        vector: queryEmbedding,
+                        limit: limit * 2,
+                        filter: Object.keys(filter).length > 0 ? filter : undefined,
+                        with_payload: true,
+                        score_threshold: fallbackThreshold
+                    });
+                    console.log(`Search successful using format 2, found ${searchResults.length} results`);
+                } catch (error2) {
+                    console.warn('Search format 2 failed:', error2.message);
+                    
+                    // Format 3: Using collection interface
+                    try {
+                        const collectionInterface = this.vectorClient.collection(this.collectionName);
+                        searchResults = await collectionInterface.search({
+                            vector: queryEmbedding,
+                            limit: limit * 2,
+                            filter: Object.keys(filter).length > 0 ? filter : undefined,
+                            with_payload: true,
+                            score_threshold: fallbackThreshold
+                        });
+                        console.log(`Search successful using format 3, found ${searchResults.length} results`);
+                    } catch (error3) {
+                        console.error('All search formats failed. Details:', {
+                            error1: error1.message,
+                            error2: error2.message,
+                            error3: error3.message
+                        });
+                        return "Error retrieving memories: " + error3.message;
+                    }
+                }
+            }
+            
+            // Check for valid search results
+            if (!searchResults || !Array.isArray(searchResults)) {
+                console.warn('No valid search results returned');
+                return "No relevant memories found.";
+            }
+
+            console.log(`Search returned ${searchResults.length} results with scores:`, 
+                searchResults.map(r => Math.round(r.score * 100) + '%').join(', '));
+            
+            // Apply two-tier threshold strategy:
+            // 1. First try with high relevance threshold (primaryThreshold)
+            let highRelevanceResults = searchResults.filter(result => result.score >= primaryThreshold);
+            
+            // 2. If no high-relevance results, fall back to the lower threshold
+            let finalResults = highRelevanceResults;
+            
+            if (highRelevanceResults.length === 0) {
+                console.log(`No memories found with primary threshold ${primaryThreshold}. ` +
+                           `Using fallback threshold: ${fallbackThreshold}`);
+                finalResults = searchResults.filter(result => result.score >= fallbackThreshold);
+            }
+            
+            // Limit results to the requested number
+            finalResults = finalResults.slice(0, limit);
+            
+            // Format and return memory results
+            if (finalResults.length === 0) {
+                return "No relevant memories found.";
+            }
+            
+            // Update access info for retrieved memories
+            this.updateMemoryAccessInfo(finalResults.map(r => r.id));
+            
+            // Format the results
+            let formattedResults = "Long-term memories:\n\n";
+            
+            for (let i = 0; i < finalResults.length; i++) {
+                const result = finalResults[i];
+                const memory = result.payload;
+                const relevancePercent = Math.round(result.score * 100);
+                
+                formattedResults += `[Memory ${i+1}] (Relevance: ${relevancePercent}%)\n`;
+                formattedResults += `${memory.text}\n\n`;
+            }
+            
+            console.log(`Retrieved ${finalResults.length} memories ` +
+                      `with scores ranging from ${Math.round(finalResults[finalResults.length-1]?.score * 100)}% ` +
+                      `to ${Math.round(finalResults[0]?.score * 100)}%`);
+            
+            return formattedResults;
         } catch (error) {
             console.error('Error retrieving memories:', error);
             return "Error retrieving long-term memories.";
+        }
+    }
+
+    /**
+     * Update memory access metadata
+     * @param {Array<string>} memoryIds - IDs of memories to update
+     * @private
+     */
+    async _updateMemoryAccessMetadata(memoryIds) {
+        if (!this.vectorClient || !memoryIds || memoryIds.length === 0) {
+            return;
+        }
+        
+        try {
+            console.log(`Updating access metadata for ${memoryIds.length} memories`);
+            const now = new Date().toISOString();
+            
+            for (const id of memoryIds) {
+                try {
+                    const point = await this.vectorClient.retrieve(this.collectionName, { ids: [id] });
+                    
+                    if (point && point.length > 0) {
+                        const memory = point[0].payload;
+                        const accessCount = (memory.access_count || 0) + 1;
+                        
+                        await this.vectorClient.setPayload(this.collectionName, {
+                            points: [id],
+                            payload: {
+                                last_accessed: now,
+                                access_count: accessCount
+                            }
+                        });
+                    }
+                } catch (err) {
+                    console.warn(`Failed to update memory ${id} access metadata:`, err.message);
+                }
+            }
+        } catch (error) {
+            console.warn('Error updating memory access metadata:', error);
+        }
+    }
+
+    /**
+     * Update access information for retrieved memories
+     * @param {Array<string>} memoryIds - Array of memory IDs to update
+     * @returns {Promise<void>}
+     */
+    async updateMemoryAccessInfo(memoryIds) {
+        if (!this.vectorClient || !memoryIds || memoryIds.length === 0) {
+            return;
+        }
+        
+        const now = new Date().toISOString();
+        
+        try {
+            // Update each memory's access information
+            for (const id of memoryIds) {
+                try {
+                    // Get current payload for this memory
+                    let point = null;
+                    
+                    // Try different API formats to get points
+                    try {
+                        // Format 1: Direct points method
+                        const response = await this.vectorClient.getPoints(this.collectionName, {
+                            ids: [id],
+                            with_payload: true
+                        });
+                        if (response?.points?.[0]) {
+                            point = response.points[0];
+                        }
+                    } catch (err1) {
+                        try {
+                            // Format 2: Object-based API
+                            const response = await this.vectorClient.getPoints({
+                                collection_name: this.collectionName,
+                                ids: [id],
+                                with_payload: true
+                            });
+                            if (response?.points?.[0]) {
+                                point = response.points[0];
+                            }
+                        } catch (err2) {
+                            try {
+                                // Format 3: Using collection interface
+                                const collection = this.vectorClient.collection(this.collectionName);
+                                const response = await collection.retrieve([id], { with_payload: true });
+                                if (response?.[0]) {
+                                    point = response[0];
+                                }
+                            } catch (err3) {
+                                console.warn(`All getPoints methods failed for memory ${id}:`, 
+                                    { error1: err1.message, error2: err2.message, error3: err3.message });
+                                // Skip updating this point
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    if (!point || !point.payload) {
+                        console.warn(`Memory ${id} not found or has no payload, cannot update access info`);
+                        continue;
+                    }
+                    
+                    // Update access information
+                    const payload = point.payload;
+                    const newPayload = {
+                        ...payload,
+                        last_accessed: now,
+                        access_count: (payload.access_count || 0) + 1
+                    };
+                    
+                    // Try different API formats to update the point
+                    let updated = false;
+                    
+                    try {
+                        // Format 1: Collection name first, then params
+                        await this.vectorClient.setPayload(this.collectionName, {
+                            points: [id],
+                            payload: newPayload
+                        });
+                        updated = true;
+                    } catch (err1) {
+                        try {
+                            // Format 2: Object-based API
+                            await this.vectorClient.setPayload({
+                                collection_name: this.collectionName,
+                                points: [id],
+                                payload: newPayload
+                            });
+                            updated = true;
+                        } catch (err2) {
+                            try {
+                                // Format 3: Using collection interface
+                                const collection = this.vectorClient.collection(this.collectionName);
+                                await collection.updatePayload([id], newPayload);
+                                updated = true;
+                            } catch (err3) {
+                                console.warn(`All payload update methods failed for memory ${id}:`, 
+                                    { error1: err1.message, error2: err2.message, error3: err3.message });
+                            }
+                        }
+                    }
+                    
+                    if (updated) {
+                        console.log(`Updated access info for memory ${id}`);
+                    }
+                } catch (err) {
+                    console.warn(`Failed to update access info for memory ${id}:`, err.message);
+                }
+            }
+        } catch (err) {
+            console.error('Error updating memory access information:', err);
         }
     }
 
@@ -397,44 +865,49 @@ export class MemoryManager {
     }
 
     /**
-     * Update memory access metadata
-     * @param {Array<string>} memoryIds - IDs of memories to update
+     * Create payload index for faster filtering
+     * @returns {Promise<boolean>} - True if successful
      */
-    async _updateMemoryAccessMetadata(memoryIds) {
-        if (!Array.isArray(memoryIds) || memoryIds.length === 0 || !this.vectorClient) {
-            return;
+    async createPayloadIndex() {
+        if (!this.vectorClient || !this.collectionName) {
+            return false;
         }
         
         try {
-            // Update last_accessed and access_count for each memory
-            for (const id of memoryIds) {
-                const points = await this.vectorClient.retrieve(this.collectionName, {
-                    ids: [id],
-                    with_payload: true,
-                    with_vectors: false
-                });
-                
-                if (points && points.length > 0) {
-                    const point = points[0];
-                    const payload = point.payload;
-                    
-                    // Update access metadata
-                    payload.last_accessed = new Date().toISOString();
-                    payload.access_count = (payload.access_count || 0) + 1;
-                    
-                    // Update the point with new metadata
-                    await this.vectorClient.updatePayload(this.collectionName, {
-                        points: [{ id: id, payload: payload }]
+            // Create index on metadata fields that are often used for filtering
+            const fieldsToIndex = ['type', 'source', 'importance', 'timestamp'];
+            
+            for (const field of fieldsToIndex) {
+                try {
+                    await this.vectorClient.createPayloadIndex(this.collectionName, {
+                        field_name: `metadata.${field}`,
+                        field_schema: 'keyword'
                     });
+                    console.log(`Created payload index for metadata.${field}`);
+                } catch (err) {
+                    // Try alternative API format
+                    try {
+                        await this.vectorClient.createPayloadIndex({
+                            collection_name: this.collectionName,
+                            field_name: `metadata.${field}`,
+                            field_schema: 'keyword'
+                        });
+                        console.log(`Created payload index for metadata.${field} (alternative API)`);
+                    } catch (altErr) {
+                        // Ignore individual field errors, just continue with others
+                        console.warn(`Could not create index for metadata.${field}: ${altErr.message}`);
+                    }
                 }
             }
-        } catch (error) {
-            console.warn('Failed to update memory access metadata:', error);
+            return true;
+        } catch (err) {
+            console.warn(`Could not create payload indexes: ${err.message}`);
+            return false;
         }
     }
 
     /**
-     * Helper method to add tags to an existing memory
+     * Method to add tags to an existing memory
      * @param {string} memoryId - ID of memory to add tags to
      * @param {Array<string>} tags - Tags to add
      * @returns {boolean} - Success or failure

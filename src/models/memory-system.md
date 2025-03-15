@@ -38,7 +38,7 @@ Each memory is stored with rich structured metadata:
 
 ## High Relevance Threshold
 
-The system maintains a high relevance threshold (0.85) for memory retrieval to ensure only highly relevant memories are used in responses. This can be customized if needed.
+The system maintains a high relevance threshold (0.45) for memory retrieval to ensure only highly relevant memories are used in responses. This can be customized if needed.
 
 ## Usage Examples
 

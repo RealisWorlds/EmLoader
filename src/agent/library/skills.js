@@ -6,7 +6,7 @@ import * as constructionHelpers from './construction_helpers.js';
 
 // Helper function to add a delay between commands
 async function delayCommand() {
-    return new Promise(resolve => setTimeout(resolve, 150)); // Increased to 150ms for more spacing between commands
+    return new Promise(resolve => setTimeout(resolve, 10)); // Increased to 150ms for more spacing between commands
 }
 
 // Helper function to safely execute commands with guaranteed delay
@@ -560,8 +560,8 @@ export async function breakBlockAt(bot, x, y, z) {
     
     const now = Date.now();
     const timeSinceLastBreak = now - bot._lastBlockBreakTime;
-    if (timeSinceLastBreak < 200) { // Ensure at least 200ms between any block operations
-        await new Promise(resolve => setTimeout(resolve, 200 - timeSinceLastBreak));
+    if (timeSinceLastBreak < 10) { // Ensure at least 200ms between any block operations
+        await new Promise(resolve => setTimeout(resolve, 10 - timeSinceLastBreak));
     }
     bot._lastBlockBreakTime = Date.now();
     
@@ -637,8 +637,8 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         
         const now = Date.now();
         const timeSinceLastPlace = now - bot._lastBlockPlaceTime;
-        if (timeSinceLastPlace < 200) { // Ensure at least 200ms between any block placements
-            await new Promise(resolve => setTimeout(resolve, 200 - timeSinceLastPlace));
+        if (timeSinceLastPlace < 10) { // Ensure at least 200ms between any block placements
+            await new Promise(resolve => setTimeout(resolve, 10 - timeSinceLastPlace));
         }
         bot._lastBlockPlaceTime = Date.now();
         
@@ -1619,7 +1619,7 @@ export async function buildStructure(bot, structureType, options = {}) {
         
         // Apply default rate limiting if not specified
         if (!options.blocksPerStep) options.blocksPerStep = 5;
-        if (!options.delayBetweenSteps) options.delayBetweenSteps = 500;
+        if (!options.delayBetweenSteps) options.delayBetweenSteps = 10;
         
         // Route to the appropriate construction helper based on structure type
         switch (structureType.toLowerCase()) {

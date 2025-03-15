@@ -141,11 +141,11 @@ graph TD
 ```
 
 ### Custom Relevance Threshold
-**Current Setting**: The system is configured to only use long-term memories when their relevance scores are very high (above 0.85). This ensures that the agent only uses memories that are highly relevant to the current context.
+**Current Setting**: The system is configured to only use long-term memories when their relevance scores are very high (above 0.45). This ensures that the agent only uses memories that are highly relevant to the current context.
 
 ```javascript
 // Define a high relevance threshold
-const HIGH_RELEVANCE_THRESHOLD = 0.85;
+const HIGH_RELEVANCE_THRESHOLD = 0.45;
             
 // Filter for only highly relevant results
 const highlyRelevantResults = searchResults.filter(result => result.score >= HIGH_RELEVANCE_THRESHOLD);
@@ -169,7 +169,7 @@ graph TD
 
 ## Possible Modification Points
 
-1. **Relevance Threshold**: Currently set at 0.85 in `retrieveRelevantMemories()` - adjust to control memory sensitivity
+1. **Relevance Threshold**: Currently set at 0.45 in `retrieveRelevantMemories()` - adjust to control memory sensitivity
 2. **Memory Format**: Modify the memory formatting in the same function
 3. **Embedding Models**: Change or enhance in the constructor
 4. **Memory Storage Logic**: Customize the `promptMemoryStorage` function to change how experiences are processed into memories

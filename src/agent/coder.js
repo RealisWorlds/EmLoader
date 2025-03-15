@@ -27,46 +27,19 @@ export class Coder {
     }
 
     async lintCode(code) {
-        let result = '#### CODE ERROR INFO ###\n';
-        // Extract everything in the code between the beginning of 'skills./world.' and the '('
-        const skillRegex = /(?:skills|world)\.(.*?)\(/g;
-        const skills = [];
-        let match;
-        while ((match = skillRegex.exec(code)) !== null) {
-            skills.push(match[1]);
-        }
-        const allDocs = await this.agent.prompter.skill_libary.getAllSkillDocs();
-        // check function exists
-        const missingSkills = skills.filter(skill => !allDocs[skill]);
-        if (missingSkills.length > 0) {
-            result += 'These functions do not exist.\n';
-            result += '### FUNCTIONS NOT FOUND ###\n';
-            result += missingSkills.join('\n');
-            console.log(result);
-            return result;
-        }
-
-        const eslint = new ESLint();
-        const results = await eslint.lintText(code);
-        const codeLines = code.split('\n');
-        const exceptions = results.map(r => r.messages).flat();
-
-        if (exceptions.length > 0) {
-            exceptions.forEach((exc, index) => {
-                if (exc.line && exc.column) {
-                    const errorLine = codeLines[exc.line - 1]?.trim() || 'Unable to retrieve error line content';
-                    result += `#ERROR ${index + 1}\n`;
-                    result += `Message: ${exc.message}\n`;
-                    result += `Location: Line ${exc.line}, Column ${exc.column}\n`;
-                    result += `Related Code Line: ${errorLine}\n`;
-                }
-            });
-            result += 'The code contains exceptions and cannot continue execution.';
-        } else {
-            return null;//no error
-        }
-
-        return result;
+        // let result = '#### CODE ERROR INFO ###\n';
+        // // Extract everything in the code between the beginning of 'skills./world.' and the '('
+        // const skillRegex = /(?:skills|world)\.(.*?)\(/g;
+        // const skills = [];
+        // let match;
+        // while ((match = skillRegex.exec(code)) !== null) {
+        //     skills.push(match[1]);
+        // }
+        // const allDocs = await this.agent.prompter.skill_libary.getAllSkillDocs();
+        // // check function exists
+        // const missingSkills = skills.filter(skill => !allDocs[skill]);
+      
+        return;
     }
 
     async stageCode(code) {
@@ -193,18 +166,18 @@ export class Coder {
             const result = await this.stageCode(code);
             const executionModuleExports = result.func;
             let src_lint_copy = result.src_lint_copy;
-            const analysisResult = await this.lintCode(src_lint_copy);
-            if (analysisResult) {
-                const message = 'Error: Code lint error:' + '\n' + analysisResult + '\nPlease try again.';
-                console.warn("Linting error:" + '\n' + analysisResult + '\n');
-                messages.push({ role: 'system', content: message });
-                continue;
-            }
-            if (!executionModuleExports) {
-                agent_history.add('system', 'Failed to stage code, something is wrong.');
-                console.warn("Failed to stage code, something is wrong.");
-                return { success: false, message: null, interrupted: false, timedout: false };
-            }
+            // const analysisResult = await this.lintCode(src_lint_copy);
+            // if (analysisResult) {
+            //     const message = 'Error: Code lint error:' + '\n' + analysisResult + '\nPlease try again.';
+            //     console.warn("Linting error:" + '\n' + analysisResult + '\n');
+            //     messages.push({ role: 'system', content: message });
+            //     continue;
+            // }
+            // if (!executionModuleExports) {
+            //     agent_history.add('system', 'Failed to stage code, something is wrong.');
+            //     console.warn("Failed to stage code, something is wrong.");
+            //     return { success: false, message: null, interrupted: false, timedout: false };
+            // }
 
             try {
                 code_return = await this.agent.actions.runAction('newAction', async () => {

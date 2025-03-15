@@ -8,11 +8,13 @@ export class GPT {
         this.params = params;
 
         let config = {};
-        if (url)
+        if (url) {
             config.baseURL = url;
+        }
 
-        if (hasKey('OPENAI_ORG_ID'))
+        if (hasKey('OPENAI_ORG_ID')) {
             config.organization = getKey('OPENAI_ORG_ID');
+        }
 
         config.apiKey = getKey('OPENAI_API_KEY');
 
@@ -36,12 +38,13 @@ export class GPT {
         let res = null;
 
         try {
-            console.log('Awaiting openai api response from model', this.model_name)
+            console.log('Awaiting openai api response from model', this.model_name);
             // console.log('Messages:', messages);
             let completion = await this.openai.chat.completions.create(pack);
-            if (completion.choices[0].finish_reason == 'length')
+            if (completion.choices[0].finish_reason == 'length') {
                 throw new Error('Context length exceeded'); 
-            console.log('Received.')
+            }
+            console.log('Received.');
             res = completion.choices[0].message.content;
         }
         catch (err) {
@@ -57,8 +60,9 @@ export class GPT {
     }
 
     async embed(text) {
-        if (text.length > 8191)
+        if (text.length > 8191) {
             text = text.slice(0, 8191);
+        }
         const embedding = await this.openai.embeddings.create({
             model: this.model_name || "text-embedding-3-small",
             input: text,
@@ -66,7 +70,9 @@ export class GPT {
         });
         return embedding.data[0].embedding;
     }
+
+    // Add getEmbedding method for compatibility with memory system
+    async getEmbedding(text) {
+        return this.embed(text);
+    }
 }
-
-
-

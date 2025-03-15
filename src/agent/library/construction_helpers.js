@@ -27,7 +27,7 @@ export async function buildSpiral(bot, options) {
         radiusEnd = 5,
         blockTypes = ['stone', 'cobblestone'],
         blocksPerStep = 10, 
-        delayBetweenSteps = 500
+        delayBetweenSteps = 10
     } = options;
 
     // Log the start of construction
@@ -107,7 +107,7 @@ export async function buildTornado(bot, options) {
         offsetIncrement = 1,
         offsetRepeat = 10,
         blocksPerStep = 5,
-        delayBetweenSteps = 500
+        delayBetweenSteps = 10
     } = options;
 
     try {
