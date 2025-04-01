@@ -60,8 +60,7 @@ export function initBot(username) {
         host: settings.host,
         port: settings.port,
         auth: settings.auth,
-        keepAlive: true,
-        checkTimeoutInterval: 60000,
+
         version: mc_version,
     });
     bot.loadPlugin(pathfinder);

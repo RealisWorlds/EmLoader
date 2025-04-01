@@ -218,26 +218,25 @@ export class Agent {
         const self_prompt = source === 'system' || source === this.name;
         const from_other_bot = convoManager.isOtherAgent(source);
 
-        // debug acdx removed this, i dont think its right to let users directly run commands
-        // if (!self_prompt && !from_other_bot) { // from user, check for forced commands
-        //     const user_command_name = containsCommand(message);
-        //     if (user_command_name) {
-        //         if (!commandExists(user_command_name)) {
-        //             this.routeResponse(source, `Command '${user_command_name}' does not exist.`);
-        //             return false;
-        //         }
-        //         this.routeResponse(source, `*${source} used ${user_command_name.substring(1)}*`);
-        //         if (user_command_name === '!newAction') {
-        //             // all user-initiated commands are ignored by the bot except for this one
-        //             // add the preceding message to the history to give context for newAction
-        //             this.history.add(source, message);
-        //         }
-        //         let execute_res = await executeCommand(this, message);
-        //         if (execute_res) 
-        //             this.routeResponse(source, execute_res);
-        //         return true;
-        //     }
-        // }
+        if (!self_prompt && !from_other_bot) { // from user, check for forced commands
+            const user_command_name = containsCommand(message);
+            if (user_command_name) {
+                if (!commandExists(user_command_name)) {
+                    this.routeResponse(source, `Command '${user_command_name}' does not exist.`);
+                    return false;
+                }
+                this.routeResponse(source, `*${source} used ${user_command_name.substring(1)}*`);
+                if (user_command_name === '!newAction') {
+                    // all user-initiated commands are ignored by the bot except for this one
+                    // add the preceding message to the history to give context for newAction
+                    this.history.add(source, message);
+                }
+                let execute_res = await executeCommand(this, message);
+                if (execute_res) 
+                    this.routeResponse(source, execute_res);
+                return true;
+            }
+        }
 
         if (from_other_bot)
             this.last_sender = source;

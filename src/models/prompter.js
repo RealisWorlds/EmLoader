@@ -7,7 +7,6 @@ import { stringifyTurns } from '../utils/text.js';
 import { getCommand } from '../agent/commands/index.js';
 import settings from '../../settings.js';
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { MemoryManager } from './memory.js';
 
 import { Gemini } from './gemini.js';
 import { GPT } from './gpt.js';
@@ -20,9 +19,11 @@ import { GroqCloudAPI } from './groq.js';
 import { HuggingFace } from './huggingface.js';
 import { Qwen } from "./qwen.js";
 import { Grok } from "./grok.js";
+import { DeepSeek } from './deepseek.js';
+import { OpenRouter } from './openrouter.js';
 
 export class Prompter {
-    constructor(agent, fp, memory) {
+    constructor(agent, fp) {
         this.agent = agent;
         this.profile = JSON.parse(readFileSync(fp, 'utf8'));
         let default_profile = JSON.parse(readFileSync('./profiles/defaults/_default.json', 'utf8'));
@@ -31,15 +32,13 @@ export class Prompter {
 
         // first use defaults to fill in missing values in the base profile
         for (let key in default_profile) {
-            if (base_profile[key] === undefined) {
+            if (base_profile[key] === undefined)
                 base_profile[key] = default_profile[key];
-            }
         }
         // then use base profile to fill in missing values in the individual profile
         for (let key in base_profile) {
-            if (this.profile[key] === undefined) {
+            if (this.profile[key] === undefined)
                 this.profile[key] = base_profile[key];
-            }
         }
         // base overrides default, individual overrides base
 
@@ -54,9 +53,8 @@ export class Prompter {
 
         // try to get "max_tokens" parameter, else null
         let max_tokens = null;
-        if (this.profile.max_tokens) {
+        if (this.profile.max_tokens)
             max_tokens = this.profile.max_tokens;
-        }
 
         let chat_model_profile = this._selectAPI(this.profile.model);
         this.chat_model = this._createModel(chat_model_profile);
@@ -71,40 +69,36 @@ export class Prompter {
 
         let embedding = this.profile.embedding;
         if (embedding === undefined) {
-            if (chat_model_profile.api !== 'ollama') {
+            if (chat_model_profile.api !== 'ollama')
                 embedding = {api: chat_model_profile.api};
-            } else {
+            else
                 embedding = {api: 'none'};
-            }
-        } else if (typeof embedding === 'string' || embedding instanceof String) {
+        }
+        else if (typeof embedding === 'string' || embedding instanceof String)
             embedding = {api: embedding};
-        }
-        else {
-            embedding = {api: 'ollama'};
-        }
 
         console.log('Using embedding settings:', embedding);
 
         try {
-            if (embedding.api === 'google') {
+            if (embedding.api === 'google')
                 this.embedding_model = new Gemini(embedding.model, embedding.url);
-            } else if (embedding.api === 'openai') {
+            else if (embedding.api === 'openai')
                 this.embedding_model = new GPT(embedding.model, embedding.url);
-            } else if (embedding.api === 'replicate') {
+            else if (embedding.api === 'replicate')
                 this.embedding_model = new ReplicateAPI(embedding.model, embedding.url);
-            } else if (embedding.api === 'ollama') {
+            else if (embedding.api === 'ollama')
                 this.embedding_model = new Local(embedding.model, embedding.url);
-            } else if (embedding.api === 'qwen') {
+            else if (embedding.api === 'qwen')
                 this.embedding_model = new Qwen(embedding.model, embedding.url);
-            } else if (embedding.api === 'mistral') {
+            else if (embedding.api === 'mistral')
                 this.embedding_model = new Mistral(embedding.model, embedding.url);
-            } else if (embedding.api === 'huggingface') {
+            else if (embedding.api === 'huggingface')
                 this.embedding_model = new HuggingFace(embedding.model, embedding.url);
-            } else if (embedding.api === 'novita') {
+            else if (embedding.api === 'novita')
                 this.embedding_model = new Novita(embedding.model, embedding.url);
-            } else {
+            else {
                 this.embedding_model = null;
-                let embedding_name = embedding ? embedding.api : '[NOT SPECIFIED]';
+                let embedding_name = embedding ? embedding.api : '[NOT SPECIFIED]'
                 console.warn('Unsupported embedding: ' + embedding_name + '. Using word-overlap instead, expect reduced performance. Recommend using a supported embedding model. See Readme.');
             }
         }
@@ -114,25 +108,9 @@ export class Prompter {
             this.embedding_model = null;
         }
         
-        // Initialize memory system with proper configuration
-        const vectorDbConfig = this.profile.vectorDb || {};
-        const collectionName = vectorDbConfig.collectionName || `${this.agent.name}_memories`;
-        const vectorDbUrl = vectorDbConfig.url || 'http://localhost:6333';
-        const vectorSize = vectorDbConfig.vectorSize || null;
+        // Initialize vector database for long-term memory
+        this.initVectorMemory();
         
-        console.log('Initializing memory system with collection:', collectionName);
-        this.memory = new MemoryManager(
-            this.embedding_model, 
-            vectorDbUrl,
-            {
-                collectionName: collectionName,
-                vectorSize: vectorSize
-            }
-        );
-        
-        // Initialize vector memory after creation
-        this.memory.initVectorMemory();
-
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);
         mkdirSync(`./bots/${name}`, { recursive: true });
         writeFileSync(`./bots/${name}/last_profile.json`, JSON.stringify(this.profile, null, 4), (err) => {
@@ -148,78 +126,69 @@ export class Prompter {
             profile = {model: profile};
         }
         if (!profile.api) {
-            if (profile.model.includes('gemini')) {
+            if (profile.model.includes('gemini'))
                 profile.api = 'google';
-            } else if (profile.model.includes('openrouter/')) {
+            else if (profile.model.includes('openrouter/'))
                 profile.api = 'openrouter'; // must do before others bc shares model names
-            } else if (profile.model.includes('gpt') || profile.model.includes('o1')|| profile.model.includes('o3')) {
+            else if (profile.model.includes('gpt') || profile.model.includes('o1')|| profile.model.includes('o3'))
                 profile.api = 'openai';
-            } else if (profile.model.includes('claude')) {
+            else if (profile.model.includes('claude'))
                 profile.api = 'anthropic';
-            } else if (profile.model.includes('huggingface/')) {
+            else if (profile.model.includes('huggingface/'))
                 profile.api = "huggingface";
-            } else if (profile.model.includes('replicate/')) {
+            else if (profile.model.includes('replicate/'))
                 profile.api = 'replicate';
-            } else if (profile.model.includes('mistralai/') || profile.model.includes("mistral/")) {
-                profile.api = 'mistral';
-            } else if (profile.model.includes("groq/") || profile.model.includes("groqcloud/")) {
+            else if (profile.model.includes('mistralai/') || profile.model.includes("mistral/"))
+                model_profile.api = 'mistral';
+            else if (profile.model.includes("groq/") || profile.model.includes("groqcloud/"))
                 profile.api = 'groq';
-            } else if (profile.model.includes('novita/')) {
+            else if (profile.model.includes('novita/'))
                 profile.api = 'novita';
-            } else if (profile.model.includes('qwen')) {
+            else if (profile.model.includes('qwen'))
                 profile.api = 'qwen';
-            } else if (profile.model.includes('grok')) {
+            else if (profile.model.includes('grok'))
                 profile.api = 'xai';
-            } else if (profile.model.includes('deepseek')) {
+            else if (profile.model.includes('deepseek'))
                 profile.api = 'deepseek';
-            } else {
+            else if (profile.model.includes('llama3'))
                 profile.api = 'ollama';
-            }
+            else 
+                throw new Error('Unknown model:', profile.model);
         }
-
-        // allow overriding via params
-        if (profile.params) {
-            if (profile.params.api) {
-                profile.api = profile.params.api;
-                delete profile.params.api;
-            }
-        }
-        if (!profile.params)
-            profile.params = {};
         return profile;
     }
 
     _createModel(profile) {
-        if (profile.api === 'google') {
-            return new Gemini(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'openai') {
-            return new GPT(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'ollama') {
-            return new Local(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'anthropic') {
-            return new Claude(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'replicate') {
-            return new ReplicateAPI(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'openrouter') {
-            return new GPT(profile.model, "https://openrouter.ai/api/v1", profile.params);
-        } else if (profile.api === 'mistral') {
-            return new Mistral(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'novita') {
-            return new Novita(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'deepseek') {
-            return new HuggingFace(profile.model, profile.url, profile.params); // same api diff model
-        } else if (profile.api === 'groq') {
-            return new GroqCloudAPI(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'qwen') {
-            return new Qwen(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'xai') {
-            return new Grok(profile.model, profile.url, profile.params);
-        } else if (profile.api === 'huggingface') {
-            return new HuggingFace(profile.model, profile.url, profile.params);
-        } else {
-            // unrecognized, so assume local/ollama
-            return new Local(profile.model, profile.url, profile.params);
-        }
+        let model = null;
+        if (profile.api === 'google')
+            model = new Gemini(profile.model, profile.url, profile.params);
+        else if (profile.api === 'openai')
+            model = new GPT(profile.model, profile.url, profile.params);
+        else if (profile.api === 'anthropic')
+            model = new Claude(profile.model, profile.url, profile.params);
+        else if (profile.api === 'replicate')
+            model = new ReplicateAPI(profile.model.replace('replicate/', ''), profile.url, profile.params);
+        else if (profile.api === 'ollama')
+            model = new Local(profile.model, profile.url, profile.params);
+        else if (profile.api === 'mistral')
+            model = new Mistral(profile.model, profile.url, profile.params);
+        else if (profile.api === 'groq')
+            model = new GroqCloudAPI(profile.model.replace('groq/', '').replace('groqcloud/', ''), profile.url, profile.params);
+        else if (profile.api === 'huggingface')
+            model = new HuggingFace(profile.model, profile.url, profile.params);
+        else if (profile.api === 'novita')
+            model = new Novita(profile.model.replace('novita/', ''), profile.url, profile.params);
+        else if (profile.api === 'qwen')
+            model = new Qwen(profile.model, profile.url, profile.params);
+        else if (profile.api === 'xai')
+            model = new Grok(profile.model, profile.url, profile.params);
+        else if (profile.api === 'deepseek')
+            model = new DeepSeek(profile.model, profile.url, profile.params);
+        else if (profile.api === 'openrouter')
+            model = new OpenRouter(profile.model.replace('openrouter/', ''), profile.url, profile.params);
+        else
+            throw new Error('Unknown API:', profile.api);
+        return model;
     }
 
     getName() {
@@ -227,7 +196,7 @@ export class Prompter {
     }
 
     getInitModes() {
-        return this.profile.init_modes || [];
+        return this.profile.modes;
     }
 
     async initExamples() {
@@ -285,10 +254,14 @@ export class Prompter {
         if (prompt.includes('$CODE_DOCS'))
             prompt = prompt.replaceAll('$CODE_DOCS', getSkillDocs());
         if (prompt.includes('$EXAMPLES') && examples !== null)
-            prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));       
-     
+            prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
+        if (prompt.includes('$LONG_TERM_MEMORY') && messages && messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            const relevantMemories = await this.retrieveRelevantMemories(lastMessage.content, 3);
+            prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
+        }
         if (prompt.includes('$TO_SUMMARIZE'))
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
         if (prompt.includes('$CONVO'))
@@ -297,24 +270,6 @@ export class Prompter {
             // if active or paused, show the current goal
             let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : '';
             prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
-        }
-        if (prompt.includes('$LONG_TERM_MEMORY')) {
-            try {
-                if (messages && messages.length > 0) {
-                    const lastMessage = messages[messages.length - 1];
-                    const relevantMemories = await this.memory.retrieveRelevantMemories(lastMessage.content, 3);
-                    if (relevantMemories) {
-                        prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
-                    } else {
-                        prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "No long-term memories available.");
-                    }
-                } else {
-                    prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "No long-term memories available.");
-                }
-            } catch (error) {
-                console.error('Error handling $LONG_TERM_MEMORY placeholder:', error);
-                prompt = prompt.replaceAll('$LONG_TERM_MEMORY', "Error retrieving long-term memories.");
-            }
         }
         if (prompt.includes('$LAST_GOALS')) {
             let goal_text = '';
@@ -408,7 +363,7 @@ export class Prompter {
         let prompt = this.profile.bot_responder;
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
-        prompt = await this.replaceStrings(prompt, messages);
+        prompt = await this.replaceStrings(prompt, null, null, messages);
         let res = await this.chat_model.sendRequest([], prompt);
         return res.trim().toLowerCase() === 'respond';
     }
@@ -439,65 +394,168 @@ export class Prompter {
         return goal;
     }
 
-    async storeMemory(text, metadata = {}) {
-        if (!text || text.trim() === '') {
-            console.warn('Generated empty memory text, nothing to store');
-            return;
+    // Initialize vector database for long-term memory
+    async initVectorMemory() {
+        try {
+            // Default Qdrant settings - can be overridden in profile
+            const qdrantConfig = this.profile.vectorDb || {
+                url: 'http://localhost:6333',
+                collectionName: `${this.agent.name}_memories`,
+                vectorSize: 1536  // Default for many embedding models
+            };
+            
+            console.log('Initializing vector memory with config:', JSON.stringify(qdrantConfig, null, 2));
+            
+            // Initialize Qdrant client
+            this.vectorClient = new QdrantClient({ 
+                url: qdrantConfig.url 
+            });
+            
+            this.collectionName = qdrantConfig.collectionName;
+            const vectorSize = qdrantConfig.vectorSize;
+            
+            // Check if collection exists, create if it doesn't
+            try {
+                await this.vectorClient.getCollection(this.collectionName);
+                console.log(`Vector memory collection "${this.collectionName}" already exists.`);
+            } catch (error) {
+                // Collection doesn't exist, create it
+                console.log(`Creating vector memory collection "${this.collectionName}" with dimension ${vectorSize}`);
+                await this.vectorClient.createCollection(this.collectionName, {
+                    vectors: {
+                        size: vectorSize,
+                        distance: 'Cosine'
+                    }
+                });
+                console.log(`Created vector memory collection "${this.collectionName}"`);
+            }
+            
+            console.log("Vector database initialized successfully.");
+        } catch (error) {
+            console.error('Failed to initialize vector memory:', error);
+            this.vectorClient = null;
+        }
+    }
+    
+    // Get embedding for text using the configured embedding model
+    async getEmbedding(text) {
+        if (!this.embedding_model) {
+            console.warn('No embedding model available');
+            return null;
         }
         
-        if (this.memory) {
-            await this.memory.storeMemory(text, metadata);
-        } else {
-            console.warn('Memory system not available, unable to store memory');
+        try {
+            // Using the embed method that exists in the model implementations
+            return await this.embedding_model.embed(text);
+        } catch (error) {
+            console.error('Error generating embedding:', error);
+            return null;
         }
     }
     
-    async retrieveRelevantMemories(query, limit = 10, options = {}) {
-        if (this.memory) {
-            return await this.memory.retrieveRelevantMemories(query, limit, options);
-        } else {
-            return "Memory system not available.";
+    // Store a new memory in the vector database
+    async storeMemory(text, metadata = {}) {
+        if (!this.vectorClient || !this.embedding_model) {
+            console.warn('Cannot store memory: Vector client or embedding model not available');
+            return false;
         }
-    }
-    
-    async addTagsToMemory(memoryId, tags = []) {
-        if (this.memory) {
-            return await this.memory.addTagsToMemory(memoryId, tags);
+        
+        try {
+            console.log(`Attempting to store memory: "${text.substring(0, 100)}..."`);
+            
+            // Generate embedding for the memory text
+            console.log('Generating embedding...');
+            const embedding = await this.getEmbedding(text);
+            if (!embedding || embedding.length === 0) {
+                console.warn('Failed to generate embedding for memory');
+                return false;
+            }
+            console.log(`Generated embedding (${embedding.length} dimensions)`);
+            
+            // Generate a unique ID (numeric timestamp instead of string)
+            const id = Date.now();
+            
+            // Store memory with metadata
+            console.log(`Storing to collection: ${this.collectionName}`);
+            await this.vectorClient.upsert(this.collectionName, {
+                points: [{
+                    id: id,
+                    vector: embedding,
+                    payload: {
+                        text: text,
+                        timestamp: new Date().toISOString(),
+                        ...metadata
+                    }
+                }]
+            });
+            
+            console.log(`✅ Successfully stored memory: "${text.substring(0, 50)}..."`);
+            return true;
+        } catch (error) {
+            console.error('Error storing memory:', error);
+            return false;
         }
-        return false;
-    }
-    
-    async searchMemoriesByTags(tags = [], limit = 10) {
-        if (this.memory) {
-            return await this.memory.searchMemoriesByTags(tags, limit);
-        }
-        return "Memory system not available.";
-    }
-    
-    async getMemoryStats() {
-        if (this.memory) {
-            return await this.memory.getMemoryStats();
-        }
-        return "Memory system not available.";
-    }
-    
-    async forgetMemory(memoryId) {
-        if (this.memory) {
-            return await this.memory.forgetMemory(memoryId);
-        }
-        return false;
-    }
-    
-    async updateMemoryImportance(memoryId, importance) {
-        if (this.memory) {
-            return await this.memory.updateMemoryImportance(memoryId, importance);
-        }
-        return false;
     }
 
+    // Retrieve memories relevant to a query
+    async retrieveRelevantMemories(query, limit = 5) {
+        if (!this.vectorClient || !this.embedding_model) {
+            console.warn('Cannot retrieve memories: Vector client or embedding model not available');
+            return "No long-term memories available.";
+        }
+        
+        try {
+            console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
+            
+            // Generate embedding for the query
+            console.log('Generating query embedding...');
+            const queryEmbedding = await this.getEmbedding(query);
+            if (!queryEmbedding || queryEmbedding.length === 0) {
+                console.warn('Failed to generate embedding for query');
+                return "No long-term memories available.";
+            }
+            console.log(`Generated query embedding (${queryEmbedding.length} dimensions)`);
+            
+            // Search for similar memories
+            console.log(`Searching collection "${this.collectionName}" for ${limit} relevant memories...`);
+            const searchResults = await this.vectorClient.search(this.collectionName, {
+                vector: queryEmbedding,
+                limit: limit,
+                with_payload: true,
+                with_vectors: false
+            });
+            
+            console.log(`Found ${searchResults?.length || 0} memories`);
+            
+            if (!searchResults || searchResults.length === 0) {
+                return "No relevant long-term memories found.";
+            }
+            
+            // Format the results
+            let formattedResults = "Relevant long-term memories:\n\n";
+            
+            searchResults.forEach((result, index) => {
+                const memory = result.payload.text;
+                const timestamp = new Date(result.payload.timestamp).toLocaleString();
+                const score = result.score.toFixed(2);
+                
+                console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory.substring(0, 50)}..."`);
+                
+                formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
+                formattedResults += `Timestamp: ${timestamp}\n\n`;
+            });
+            
+            return formattedResults;
+        } catch (error) {
+            console.error('Error retrieving memories:', error);
+            return "Error retrieving long-term memories.";
+        }
+    }
+    
+    // Store important interaction as memory
     async promptMemoryStorage(message, importance = "medium") {
-        if (!this.memory) {
-            console.warn('Cannot prompt memory storage: Memory system not available');
+        if (!this.vectorClient || !this.embedding_model) {
+            console.warn('Cannot prompt memory storage: Vector client or embedding model not available');
             return;
         }
         
@@ -505,10 +563,19 @@ export class Prompter {
         
         await this.checkCooldown();
         let prompt = this.profile.memory_storage || 
-            `You are $NAME and are processing your experience into memory to recall later, Add details that will help you remember the experience. When someone asks you about the past you need to write in a way where you will remember easily.            
+            `You are assisting an AI agent named $NAME by processing its experiences into memories.
+            
+            When processing an experience, you should:
+            1. Extract the key information that would be useful to remember
+            2. Summarize it concisely (max 1-2 sentences)
+            3. Format it in third person from the agent's perspective
+            
+            The agent's most recent experience is:
             """
             $EXPERIENCE
             """
+            
+            Generate a concise third-person memory that captures the essential information. 
             Don't explain your reasoning, just provide the memory directly.`;
         
         // Save the message content to be used by replaceStrings when it encounters $EXPERIENCE
@@ -537,7 +604,7 @@ export class Prompter {
             });
             
             if (success) {
-                console.log(' Memory successfully stored in vector database');
+                console.log('💾 Memory successfully stored in vector database');
             } else {
                 console.warn('Failed to store memory in vector database');
             }

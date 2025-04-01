@@ -99,38 +99,20 @@ export function parseCommandMessage(message) {
     if (!commandMatch) return `Command is incorrectly formatted`;
 
     const commandName = "!"+commandMatch[1];
-    
-    // Get command definition
-    const command = getCommand(commandName);
-    if(!command) return `${commandName} is not a command.`;
-    
-    // Handle argument parsing with improved error recovery
+
     let args;
-    let parsedArgs = [];
-    
-    // If we have arguments in the command
-    if (commandMatch[2]) {
-        args = commandMatch[2].match(argRegex);
-    } else {
-        args = [];
-    }
-    
-    // Get parameter definitions
+    if (commandMatch[2]) args = commandMatch[2].match(argRegex);
+    else args = [];
+
+    const command = getCommand(commandName);
+    if(!command) return `${commandName} is not a command.`
+
     const params = commandParams(command);
     const paramNames = commandParamNames(command);
     
-    // Check if arguments and parameters don't match
-    if (args.length !== params.length) {
-        // Attempt to correct the syntax by inspecting the full message
-        const correctedArgs = attemptArgumentRecovery(message, commandName, params);
-        
-        if (correctedArgs && correctedArgs.length === params.length) {
-            DEBUG.info(`Recovered arguments for ${commandName}: ${correctedArgs.join(', ')}`);
-            args = correctedArgs;
-        } else {
-            return `Command ${command.name} was given ${args.length} args, but requires ${params.length} args.`;
-        }
-    }
+    if (args.length !== params.length)
+        return `Command ${command.name} was given ${args.length} args, but requires ${params.length} args.`;
+
     
     for (let i = 0; i < args.length; i++) {
         const param = params[i];
@@ -182,10 +164,10 @@ export function parseCommandMessage(message) {
         } else if(param.type === 'ItemName') { //Check that there is an item with this name
             if(getItemId(arg) == null) return `Invalid item type: ${arg}.`
         }
-        parsedArgs[i] = arg;
+        args[i] = arg;
     }
     
-    return { commandName, args: parsedArgs };
+    return { commandName, args };
 }
 
 export function truncCommandMessage(message) {
@@ -280,91 +262,6 @@ export async function executeCommand(agent, message) {
             
             return result;
         }
-    }
-}
-
-function attemptArgumentRecovery(message, commandName, params) {
-    try {
-        // If no parameters are expected, return empty array
-        if (params.length === 0) return [];
-        
-        // Look for common argument patterns
-        
-        // Pattern 1: Single quotes instead of double quotes
-        // Example: !goToPlayer('acdxz', 3)
-        const singleQuotePattern = new RegExp(`${commandName.replace('!', '\\!')}\\s*\\(\\s*'([^']+)'\\s*,\\s*([^)]+)\\s*\\)`);
-        const singleQuoteMatch = message.match(singleQuotePattern);
-        
-        if (singleQuoteMatch && singleQuoteMatch.length >= 3) {
-            // Convert to our expected format
-            return [
-                `"${singleQuoteMatch[1]}"`,
-                singleQuoteMatch[2].trim()
-            ];
-        }
-        
-        // Pattern 2: No quotes around string arguments
-        // Example: !goToPlayer(acdxz, 3)
-        const noQuotesPattern = new RegExp(`${commandName.replace('!', '\\!')}\\s*\\(\\s*([a-zA-Z0-9_]+)\\s*,\\s*([^)]+)\\s*\\)`);
-        const noQuotesMatch = message.match(noQuotesPattern);
-        
-        if (noQuotesMatch && noQuotesMatch.length >= 3) {
-            return [
-                `"${noQuotesMatch[1]}"`,
-                noQuotesMatch[2].trim()
-            ];
-        }
-        
-        // Pattern 3: Arguments without parentheses
-        // Example: !goToPlayer acdxz 3
-        const noParenesPattern = new RegExp(`${commandName.replace('!', '\\!')}\\s+([a-zA-Z0-9_"']+)\\s+([0-9.]+)`);
-        const noParensMatch = message.match(noParenesPattern);
-        
-        if (noParensMatch && noParensMatch.length >= 3) {
-            let arg1 = noParensMatch[1];
-            // Add quotes if needed
-            if (!arg1.startsWith('"') && !arg1.startsWith("'")) {
-                arg1 = `"${arg1}"`;
-            }
-            return [arg1, noParensMatch[2].trim()];
-        }
-        
-        // Pattern 4: Try to extract arguments by position after command
-        // This is a more general fallback approach
-        const commandPosition = message.indexOf(commandName);
-        if (commandPosition !== -1) {
-            const afterCommand = message.substring(commandPosition + commandName.length).trim();
-            
-            // If we're expecting string parameters
-            if (params[0].type === 'string') {
-                // Look for strings that might be arguments
-                const potentialArgs = afterCommand.match(/(['"][^'"]+['"]|[a-zA-Z0-9_]+)/g);
-                if (potentialArgs && potentialArgs.length >= params.length) {
-                    return potentialArgs.slice(0, params.length).map(arg => {
-                        // Add quotes to strings if missing
-                        if (arg.startsWith('"') || arg.startsWith("'")) {
-                            return arg;
-                        } else {
-                            return `"${arg}"`;
-                        }
-                    });
-                }
-            }
-            
-            // For numeric parameters, try to find numbers
-            if (params[0].type === 'int' || params[0].type === 'float') {
-                const numberArgs = afterCommand.match(/[-+]?[0-9]*\.?[0-9]+/g);
-                if (numberArgs && numberArgs.length >= params.length) {
-                    return numberArgs.slice(0, params.length);
-                }
-            }
-        }
-        
-        // Recovery failed
-        return null;
-    } catch (err) {
-        console.error('Error in argument recovery:', err);
-        return null;
     }
 }
 
