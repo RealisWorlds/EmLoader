@@ -95,8 +95,8 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
   pm2 delete EmFramework
   # Save current process list (important for auto-start)
   pm2 save
-  # Check if PM2 is running as a service
-  pm2 startup status
+  # Check PM2 Status of running Ems
+  pm2 status
   # Start interactive monitoring
   pm2 monit
 

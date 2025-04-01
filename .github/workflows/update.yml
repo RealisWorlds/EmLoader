@@ -1,5 +1,4 @@
-name: Build Update Package
-
+name: Update Package
 on:
   push:
     branches:
