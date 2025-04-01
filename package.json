@@ -1,5 +1,5 @@
 {
-    "type": "module",
+    "type": "commonjs",
     "dependencies": {
         "@anthropic-ai/sdk": "^0.17.1",
         "@google/generative-ai": "^0.2.1",
@@ -26,11 +26,15 @@
         "socket.io": "^4.7.2",
         "socket.io-client": "^4.7.2",
         "vec3": "^0.1.10",
-        "yargs": "^17.7.2"
+        "yargs": "^17.7.2",
+        "cross-env": "^7.0.3",
+        "pm2": "^6.0.5"
     },
     "scripts": {
-        "postinstall": "patch-package",
-        "start": "node main.js"
+        "start": "node main.js",
+        "test": "jest",
+        "setup": "npm install -g pm2 && npm install",
+        "postinstall": "patch-package"
     },
     "devDependencies": {
         "@eslint/js": "^9.13.0",

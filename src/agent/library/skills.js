@@ -583,6 +583,11 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         }
 
         const target_dest = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z));
+        const existingBlock = bot.blockAt(target_dest);
+        if (existingBlock.name === blockType) {
+            log(bot, `Block at x:${x.toFixed(1)}, y:${y.toFixed(1)}, z:${z.toFixed(1)} is already ${blockType}, skipping.`);
+            return true;
+        }
         if (bot.modes.isOn('cheat') && !dontCheat) {
             if (bot.restrict_to_inventory) {
                 let block = bot.inventory.items().find(item => item.name === blockType);
@@ -731,7 +736,7 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
             return false;
         }
     } catch (outerError) {
-        log(bot, `Failed to place ${blockType} at ${target_dest}: ${outerError.message}`);
+        log(bot, `Failed to place ${blockType} at ${x, y, z}: ${outerError.message}`);
         return false;
     }
 }

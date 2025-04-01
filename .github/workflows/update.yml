@@ -1,0 +1,54 @@
+name: Build Update Package
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build update package
+        run: |
+          npm run build
+          # Create platform-specific directory
+          mkdir -p update/${{ matrix.os }}
+          # Copy necessary files
+          cp package.json ecosystem.config.js update/${{ matrix.os }}/
+          cp -r dist/ update/${{ matrix.os }}/dist/
+          # Create platform-specific archive
+          if [ ${{ matrix.os }} = "ubuntu-latest" ]; then
+            tar -czf update-linux.tar.gz -C update/ubuntu-latest .
+          else
+            tar -czf update-windows.tar.gz -C update/windows-latest .
+          fi
+
+      - name: Upload Linux build (if on Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-update
+          path: update-linux.tar.gz
+
+      - name: Upload Windows build (if on Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-update
+          path: update-windows.tar.gz

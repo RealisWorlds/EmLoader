@@ -56,16 +56,51 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
 
 ## 🚀 Quick Start
 
-1. **Setup API Keys**:
+1. **Setup API Keys, Configure Settings**:
    ```
-   cp keys.example.json keys.json
+   A) cp keys.example.json keys.json
+   B) Edit `keys.json` and add your preferred API key(s)
+   C) cp settings.example.js settings.js
+   D) Edit `settings.js` and configure your settings
+   E) Create a profile for the bot
+      - You can use the EmGenerator or manually create a profile
+        - Manual method: 
+          - copy an existing bot profile and name it- e.g. George.json
+          - Edit the new profile as you like
+          - Add the profile to settings.js under "profiles":
    ```
-   Edit `keys.json` and add your preferred API key(s)
 
 2. **Install Dependencies**:
    ```
-   npm install
+   npm install (install dependencies)
    ```
+
+3 **Setup Daemon and Auto-Updates, Run the bot**:
+   ```
+   npm run setup
+   pm2 start ecosystem.config.js
+   pm2 save
+   pm2 startup
+   ```
+  **Additional PM2 Commands**:
+  # Force an update from GitHub
+  pm2 reload EmFramework
+  # View all logs
+  pm2 logs EmFramework --lines 50
+  # Stop the process
+  pm2 stop EmFramework
+  # Restart the process
+  pm2 restart EmFramework
+  # Delete the process
+  pm2 delete EmFramework
+  # Save current process list (important for auto-start)
+  pm2 save
+  # Check if PM2 is running as a service
+  pm2 startup status
+  # Start interactive monitoring
+  pm2 monit
+
+**Running the bot in standalone mode**:
 
 3. **Start Minecraft**:
    - Launch Minecraft Java Edition (v1.20.4 recommended)

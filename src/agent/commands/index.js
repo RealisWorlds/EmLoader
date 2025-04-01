@@ -1,10 +1,11 @@
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
+import { actionStateCommands } from './action_state_commands.js';
 
 let suppressNoDomainWarning = false;
 
-const commandList = queryList.concat(actionsList);
+const commandList = queryList.concat(actionsList).concat(actionStateCommands);
 const commandMap = {};
 for (let command of commandList) {
     commandMap[command.name] = command;

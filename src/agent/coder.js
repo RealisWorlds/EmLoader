@@ -14,6 +14,7 @@ export class Coder {
         this.generating = false;
         this.code_template = '';
         this.code_lint_template = '';
+        this.actionLabel = '';
 
         readFile('./bots/execTemplate.js', 'utf8', (err, data) => {
             if (err) throw err;
@@ -160,6 +161,8 @@ export class Coder {
             processedCode = processedCode.replace(loop.placeholder, loop.original);
         }
 
+        const actionLabelText = `const actionLabel = "${this.actionLabel}";`;
+
         // add check interrupts function
         const checkIntFunc = `function check_interrupts() {
             if (!bot || !bot.interrupt_code) { return false; }
@@ -169,7 +172,7 @@ export class Coder {
             return true;
         }`;
         const returnFunc = `return {success: true, message: "Code completed successfully", interrupted: false, timedout: false};`;
-        processedCode = checkIntFunc + '\n' + processedCode + '\n' + returnFunc;
+        processedCode = actionLabelText + '\n' + checkIntFunc + '\n' + processedCode + '\n' + returnFunc;
         
         return processedCode;
     }
@@ -228,6 +231,7 @@ export class Coder {
             src = this.code_template.replace('/* CODE HERE */', src);
 
             let filename = this.file_counter + '.js';
+            this.agent.bot.codeFilePath = filename;
             this.file_counter++;
             
             try {
@@ -327,9 +331,6 @@ export class Coder {
         // wrapper to prevent overlapping code generation loops
         await this.agent.actions.stop();
         this.generating = true;
-        // let res = await this.generateCodeLoop(agent_history);
-        // this.generating = false;
-        // if (!res.interrupted) this.agent.bot.emit('idle');
 
         // Initialize result variable
         let res = null;
@@ -370,7 +371,6 @@ export class Coder {
         let code = null;
         let code_return = null;
         let failures = 0;
-        // const interrupt_return = {success: true, message: null, interrupted: true, timedout: false};
         const interrupt_return = {success: true, message: 'Code Interrupted.', interrupted: true, timedout: false};
         for (let i = 0; i < MAX_ATTEMPTS; i++) {
             if (this.agent.bot.interrupt_code)
@@ -449,7 +449,7 @@ export class Coder {
 
             // run the code
             try {
-                code_return = await this.agent.actions.runAction('newAction', async () => {
+                code_return = await this.agent.actions.runAction('newAction:' + this.actionLabel, async () => {
                     return await executionModuleExports.main(this.agent.bot);
                 }, { timeout: settings.code_timeout_mins });
                 if (!code_return) {

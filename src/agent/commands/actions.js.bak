@@ -37,7 +37,6 @@ export const actionsList = [
                 agent.openChat('newAction is disabled. Enable with allow_insecure_coding=true in settings.js');
                 return 'newAction not allowed! Code writing is disabled in settings. Notify the user.';
              }
-             agent.coder.actionLabel = prompt;
             return await agent.coder.generateCode(agent.history);
         }
     },
@@ -64,13 +63,13 @@ export const actionsList = [
             return;
         }
     },
-    // { I foresee users abusing this and forcing the bot to restart that isnt theirs
-    //     name: '!restart',
-    //     description: 'Restart the agent process.',
-    //     perform: async function (agent) {
-    //         agent.cleanKill();
-    //     }
-    // },
+    {
+        name: '!restart',
+        description: 'Restart the agent process.',
+        perform: async function (agent) {
+            agent.cleanKill();
+        }
+    },
     {
         name: '!clearChat',
         description: 'Clear the chat history.',
