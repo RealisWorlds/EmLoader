@@ -1,5 +1,6 @@
-const config = {
-    apps: [{
+module.exports = {
+    apps: [
+      {
         name: 'EmFramework',
         script: process.platform === 'win32' ? './main.js' : 'main.js',
         interpreter: 'node',
@@ -21,10 +22,12 @@ const config = {
           enabled: true,
           source: 'github',
           repository: 'RealisWorlds/EmLoader',
-          branch: 'master',  // Using master instead of main
+          branch: 'master',
           interval: 86400000 // Check for updates every 24 hours
         }
-    }]
+      }
+    ]
   };
+  // REMOVE the line below (ESM export):
+  // export default config;
   
-  module.exports = config;
