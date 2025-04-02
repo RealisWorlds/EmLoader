@@ -79,8 +79,9 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
 3 **Setup Daemon and Auto-Updates, Run the bot**:
    ```
    npm run setup
-   pm2 start ecosystem.config.js
+   pm2 start ecosystem.config.cjs
    pm2 save
+   # if on linux
    pm2 startup
    ```
   **Additional PM2 Commands**:
