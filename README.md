@@ -58,11 +58,11 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
 
 1. **Setup API Keys, Configure Settings**:
    ```
-   A) cp keys.example.json keys.json
-   B) Edit `keys.json` and add your preferred API key(s)
-   C) cp settings.example.js settings.js
-   D) Edit `settings.js` and configure your settings
-   E) Create a profile for the bot
+   1) cp keys.example.json keys.json
+   2) Edit `keys.json` and add your preferred API key(s)
+   3) cp settings.example.js settings.js
+   4) Edit `settings.js` and configure your settings
+   5) Create a profile for the bot
       - You can use the EmGenerator or manually create a profile
         - Manual method: 
           - copy an existing bot profile and name it- e.g. George.json
@@ -72,7 +72,8 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
 
 2. **Install Dependencies**:
    ```
-   npm install (install dependencies)
+   # (install dependencies)
+   npm install
    ```
 
 3 **Setup Daemon and Auto-Updates, Run the bot**:
@@ -83,6 +84,7 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
    pm2 startup
    ```
   **Additional PM2 Commands**:
+  ```
   # Force an update from GitHub
   pm2 reload EmFramework
   # View all logs
@@ -99,6 +101,7 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
   pm2 status
   # Start interactive monitoring
   pm2 monit
+  ```
 
 **Running the bot in standalone mode**:
 
