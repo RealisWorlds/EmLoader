@@ -105,12 +105,12 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
 
 **Running the bot in standalone mode**:
 
-3. **Start Minecraft**:
+1. **Start Minecraft**:
    - Launch Minecraft Java Edition (v1.20.4 recommended)
    - Create a new world or load an existing one
    - Open to LAN with port `55916` (or configure in `settings.js`)
 
-4. **Launch a Bot**:
+2. **Launch a Bot**:
    ```
    node main.js
    ```
@@ -119,7 +119,7 @@ Mindcraft transforms Minecraft gameplay by enabling advanced AI bots powered by 
    node main.js --profiles ./profiles/BobVilaAI.json
    ```
 
-5. **Interact with Your Bot**:
+3. **Interact with Your Bot**:
    - Talk to your bot in the Minecraft chat
    - Send commands or natural language requests
 
