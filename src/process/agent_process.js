@@ -31,16 +31,14 @@ export class AgentProcess {
             this.running = false;
             mainProxy.logoutAgent(this.name);
 
-            if (code && signal !== 'SIGINT') {
-                // agent must run for at least 10 seconds before restarting
-                if (Date.now() - last_restart < 10000) {
-                    console.error(`Agent process ${profile} exited too quickly and will not be restarted.`);
-                    return;
-                }
-                logger.debug('Restarting agent...');
-                this.start(profile, true, 'Agent process restarted.', count_id, task_path, task_id);
-                last_restart = Date.now();
+            // agent must run for at least 10 seconds before restarting
+            if (Date.now() - last_restart < 10000) {
+                console.error(`Agent process ${profile} exited too quickly and will not be restarted.`);
+                return;
             }
+            logger.debug('Restarting agent...');
+            this.start(profile, true, 'Agent process restarted.', count_id, task_path, task_id);
+            last_restart = Date.now();
         });
     
         agentProcess.on('error', (err) => {
