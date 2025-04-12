@@ -1,5 +1,6 @@
 import { cosineSimilarity } from './math.js';
 import { stringifyTurns, wordOverlapScore } from './text.js';
+import { logger } from '../utils/logger.js';
 
 export class Examples {
     constructor(model, select_num=2) {
@@ -12,8 +13,12 @@ export class Examples {
     turnsToText(turns) {
         let messages = '';
         for (let turn of turns) {
-            if (turn.role !== 'assistant')
-                messages += turn.content.substring(turn.content.indexOf(':')+1).trim() + '\n';
+            try {
+                if (turn.role !== 'assistant')
+                    messages += turn.content.substring(turn.content.indexOf(':')+1).trim() + '\n';
+            } catch (err) {
+                console.warn('Error processing turn:', err);
+            }
         }
         return messages.trim();
     }
@@ -68,9 +73,9 @@ export class Examples {
     async createExampleMessage(turns) {
         let selected_examples = await this.getRelevant(turns);
 
-        console.log('selected examples:');
+        logger.debug('selected examples:');
         for (let example of selected_examples) {
-            console.log('Example:', example[0].content)
+            logger.debug('Example:', example[0].content)
         }
 
         let msg = 'Examples of how to respond:\n';

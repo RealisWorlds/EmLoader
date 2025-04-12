@@ -6,6 +6,7 @@ import { itemSatisfied, rotateXZ } from './utils.js';
 import * as skills from '../library/skills.js';
 import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
+import { logger } from '../../utils/logger.js';
 
 
 export class NPCContoller {
@@ -46,7 +47,7 @@ export class NPCContoller {
                 }
             }
         } catch (e) {
-            console.log('Error reading construction file');
+            logger.debug('Error reading construction file');
         }
 
         for (let name in this.constructions) {
@@ -96,9 +97,9 @@ export class NPCContoller {
         let res = await this.agent.prompter.promptGoalSetting(this.agent.history.getHistory(), past_goals);
         if (res) {
             this.data.curr_goal = res;
-            console.log('Set new goal: ', res.name, ' x', res.quantity);
+            logger.debug('Set new goal: ', res.name, ' x', res.quantity);
         } else {
-            console.log('Error setting new goal.');
+            logger.debug('Error setting new goal.');
         }
     }
 

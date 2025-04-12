@@ -1,14 +1,18 @@
-import { writeFile, readFile, existsSync, mkdirSync, readdirSync, unlink } from 'fs';
+import { writeFile, readFile, existsSync, mkdirSync, readdir, unlink, stat } from 'fs';
 import { promisify } from 'util';
 import { Vec3 } from 'vec3';
 import path from 'path';
 const { makeCompartment } = await import('./library/lockdown.js');
 import * as skills from './library/skills.js';
 import * as world from './library/world.js';
+import { logger } from '../utils/logger.js';
 
 // Convert callback-based fs functions to Promise-based
 const writeFileAsync = promisify(writeFile);
 const readFileAsync = promisify(readFile);
+const readdirAsync = promisify(readdir);
+const statAsync = promisify(stat);
+const unlinkAsync = promisify(unlink);
 
 /**
  * Manages action states for pausing and resuming bot actions
@@ -37,19 +41,19 @@ export class ActionStateManager {
         try {
             // Can only save state if there's a current action executing
             if (!this.agent.actions.executing) {
-                console.error('Cannot save action state: No action is executing');
+                logger.error('Cannot save action state: No action is executing');
                 return null;
             }
     
             // Clean up actionName if needed
-            if (actionName.startsWith('newAction:')) {
-                actionName = actionName.substring('newAction:'.length).trim();
-                console.log(`Using extracted prompt as action name: "${actionName}"`);
+            if (actionName.startsWith('action:newAction:')) {
+                actionName = actionName.substring('action:newAction:'.length).trim();
+                logger.debug(`Using extracted prompt as action name: "${actionName}"`);
             } else {
-                console.log(`Using action name: "${actionName}"`)
+                logger.debug(`Using action name: "${actionName}"`)
             }
             
-            console.log(`Saving code file path: ${pstate.codeFilePath}`);
+            logger.debug(`Saving code file path: ${pstate.codeFilePath}`);
     
             // Create a safe filename from the action name
             const actionHash = this.createActionHash(actionName);
@@ -93,9 +97,9 @@ export class ActionStateManager {
                     // Also save to separate code backup file for safety
                     const codeBackupPath = path.join(this.stateFolderPath, `${actionHash}.code.js`);
                     await writeFileAsync(codeBackupPath, codeContent);
-                    console.log(`Saved code backup to ${codeBackupPath}`);
+                    logger.debug(`Saved code backup to ${codeBackupPath}`);
                 } catch (err) {
-                    console.error('Error reading/saving code content:', err);
+                    logger.error('Error reading/saving code content:', err);
                 }
             }
     
@@ -103,10 +107,10 @@ export class ActionStateManager {
             const serializedPath = this.getStatePath(actionHash);
             await this.saveStateToFile(serializedPath, state);
     
-            console.log(`Saved action state: ${actionName} (hash: ${actionHash})`);
+            logger.debug(`Saved action state: ${actionName} (hash: ${actionHash})`);
             return state;
         } catch (error) {
-            console.error('Error saving action state:', error);
+            logger.error('Error saving action state:', error);
             return null;
         }
     }
@@ -119,11 +123,11 @@ export class ActionStateManager {
     async cancelActionState(actionName) {
         try {
             // Extract action name if prefixed
-            if (actionName.startsWith('newAction:')) {
-                actionName = actionName.substring('newAction:'.length).trim();
-                console.log(`Using extracted prompt as action name: "${actionName}"`);
+            if (actionName.includes('newAction:')) {
+                actionName = actionName.substring('action:newAction:'.length).trim();
+                logger.debug(`Using extracted prompt as action name: "${actionName}"`);
             } else {
-                console.log(`Using action name: "${actionName}"`);
+                logger.debug(`Using action name: "${actionName}"`);
             }
             
             // Generate hash for the action
@@ -133,7 +137,7 @@ export class ActionStateManager {
             
             // Find matching state file
             if (existsSync(this.stateFolderPath)) {
-                const files = readdirSync(this.stateFolderPath);
+                const files = await readdirAsync(this.stateFolderPath);
                 for (const file of files) {
                     if (file.endsWith('.json')) {
                         const statePath = path.join(this.stateFolderPath, file);
@@ -148,17 +152,17 @@ export class ActionStateManager {
                                 break;
                             }
                         } catch (err) {
-                            console.error(`Error parsing state file ${file}:`, err);
+                            logger.error(`Error parsing state file ${file}:`, err);
                         }
                     }
                 }
             }
     
             if (!actionCodePath) {
-                console.error(`Could not find disk-saved action with name: ${actionName}`);
+                logger.error(`Could not find disk-saved action with name: ${actionName}`);
             }
     
-            console.log('Debug: Found action details:', {
+            logger.debug('Found action details:', {
                 actionName,
                 actionHash,
                 actionStatePath,
@@ -171,9 +175,9 @@ export class ActionStateManager {
                     await new Promise((resolve, reject) => {
                         unlink(actionCodePath, (err) => err ? reject(err) : resolve());
                     });
-                    console.log(`Removed code file: ${actionCodePath}`);
+                    logger.debug(`Removed code file: ${actionCodePath}`);
                 } catch (err) {
-                    console.error(`Error removing code file: ${err}`);
+                    logger.error(`Error removing code file: ${err}`);
                 }
             }
             
@@ -183,18 +187,18 @@ export class ActionStateManager {
                     await new Promise((resolve, reject) => {
                         unlink(actionStatePath, (err) => err ? reject(err) : resolve());
                     });
-                    console.log(`Removed state file: ${actionStatePath}`);
+                    logger.debug(`Removed state file: ${actionStatePath}`);
                 } catch (err) {
-                    console.error(`Error removing state file: ${err}`);
+                    logger.error(`Error removing state file: ${err}`);
                 }
             }
             
             // Remove from memory
             if (this.activeStates[actionHash]) {
-                console.log(`Found in memory by hash: ${actionHash}`);
+                logger.debug(`Found in memory by hash: ${actionHash}`);
                 delete this.activeStates[actionHash];
             } else {
-                console.log(`Not found in memory by hash: ${actionHash}`);
+                logger.debug(`Not found in memory by hash: ${actionHash}`);
             }
     
             // Verify cleanup was successful
@@ -205,7 +209,7 @@ export class ActionStateManager {
             ].some(Boolean);
             
             if (filesStillExist) {
-                console.error('Some files still exist after attempted removal:', {
+                logger.error('Some files still exist after attempted removal:', {
                     codeFileExists: actionCodePath && existsSync(actionCodePath),
                     stateFileExists: actionStatePath && existsSync(actionStatePath),
                     memoryStateExists: !!this.activeStates[actionHash]
@@ -213,10 +217,10 @@ export class ActionStateManager {
                 return false;
             }
             
-            console.log(`Successfully removed action state for ${actionName}`);
+            logger.debug(`Successfully removed action state for ${actionName}`);
             return true;
         } catch (error) {
-            console.error(`Error canceling action state for ${actionName}:`, error);
+            logger.error(`Error canceling action state for ${actionName}:`, error);
             return false;
         }
     }
@@ -249,7 +253,7 @@ export class ActionStateManager {
             
             // Also check for saved states on disk
             if (existsSync(this.stateFolderPath)) {
-                const files = readdirSync(this.stateFolderPath);
+                const files = await readdirAsync(this.stateFolderPath);
                 for (const file of files) {
                     if (file.endsWith('.json')) {
                         const statePath = path.join(this.stateFolderPath, file);
@@ -265,7 +269,7 @@ export class ActionStateManager {
             
             return states;
         } catch (error) {
-            console.error("Error getting all action states:", error);
+            logger.error("Error getting all action states:", error);
             return {};
         }
     }
@@ -277,12 +281,12 @@ export class ActionStateManager {
      */
     async loadActionState(actionName) {
         try {
-            // if actionName has newAction: in it, remove that from it
-            if (actionName.startsWith('newAction:')) {
-                actionName = actionName.substring('newAction:'.length).trim();
-                console.log(`Using extracted prompt as action name: "${actionName}"`);
+            // if actionName has newAction in it, remove that from it
+            if (actionName.startsWith('action:newAction:')) {
+                actionName = actionName.substring('action:newAction:'.length).trim();
+                logger.debug(`Using extracted prompt as action name: "${actionName}"`);
             } else {
-                console.log(`Using action name: "${actionName}"`)
+                logger.debug(`Using action name: "${actionName}"`)
             }
             const actionHash = this.createActionHash(actionName);
             
@@ -296,7 +300,7 @@ export class ActionStateManager {
                     const stateData = await readFileAsync(statePath, 'utf8');
                     state = JSON.parse(stateData);
                     this.activeStates[actionHash] = state;
-                    console.log(`Loaded action state from disk: ${actionName} (hash: ${actionHash})`);
+                    logger.debug(`Loaded action state from disk: ${actionName} (hash: ${actionHash})`);
                 }
             }
 
@@ -307,7 +311,7 @@ export class ActionStateManager {
                     s.actionName.toLowerCase() === actionName.toLowerCase()
                 );
                 if (matchingState) {
-                    console.log(`Found matching action state by name: ${actionName}`);
+                    logger.debug(`Found matching action state by name: ${actionName}`);
                     state = matchingState;
                     // Update the hash-based lookup in memory
                     const hash = this.createActionHash(matchingState.actionName);
@@ -316,33 +320,33 @@ export class ActionStateManager {
             }
 
             if (!state) {
-                console.warn(`No saved state found for action: ${actionName}`);
+                logger.warn(`No saved state found for action: ${actionName}`);
                 return null;
             }
-            console.log('Debug: Loaded action state:', state)
+            logger.debug('Loaded action state:', state)
             // If we have a code file path, try to recreate the resume function
             if (state.codeFilePath) {
                 try {
                     // Extract just the filename from the path
                     const filename = path.basename(state.codeFilePath);
-                    console.log(`Debug: Extracted filename: ${filename}`);
+                    logger.debug(`Extracted filename: ${filename}`);
                     
                     // Construct the path to the action-code directory
                     const actionCodeDir = path.join(this.stateFolderPath, '..', 'action-code');
-                    console.log(`Debug: Action code directory: ${actionCodeDir}`);
+                    logger.debug(`Action code directory: ${actionCodeDir}`);
                     
                     // Join the directory with the filename
                     const codeFilePath = path.join(actionCodeDir, filename);
-                    console.log(`Debug: Full code file path: ${codeFilePath}`);
+                    logger.debug(`Full code file path: ${codeFilePath}`);
                     
                     if (!existsSync(codeFilePath)) {
-                        console.error(`Code file not found at path: ${codeFilePath}`);
+                        logger.error(`Code file not found at path: ${codeFilePath}`);
                         return null;
                     }
                     
                     // Read the code file
                     const codeData = await readFileAsync(codeFilePath, 'utf8');
-                    //console.log('Code file content:', codeData.substring(0, 200) + '...'); // Show first 200 chars
+                    //logger.debug(`Code file content:', codeData.substring(0, 200) + '...'); // Show first 200 chars
                     
                     const compartment = makeCompartment({
                         skills,
@@ -350,46 +354,46 @@ export class ActionStateManager {
                         world,
                         Vec3
                     });
-                    // console.log('Resuming Code: \r\n' + codeData);
+                    // logger.debug(`Resuming Code: \r\n' + codeData);
                     // Evaluate the code in the compartment
                     const mainFn = await compartment.evaluate(codeData);
-                    console.log('Evaluated mainFn:', mainFn);
-                    console.log('mainFn properties:', Object.keys(mainFn));
+                    logger.debug('Evaluated mainFn:', mainFn);
+                    logger.debug('mainFn properties:', Object.keys(mainFn));
                     
                     // Match the structure used in coder.js
                     // In coder.js, the function is wrapped in a { func: { main: mainFn } } structure
                     if (typeof mainFn === 'function') {
                         // Create the same structure as coder.js uses
                         state.mainFn = mainFn;
-                        console.log('Using mainFn directly as the resume function');
+                        logger.debug('Using mainFn directly as the resume function');
                     } else if (mainFn && typeof mainFn.main === 'function') {
                         // Handle the case where it already has a main property
                         state.mainFn = mainFn.main;
-                        console.log('Using mainFn.main as the resume function');
+                        logger.debug('Using mainFn.main as the resume function');
                     } else {
-                        console.error('No valid function found in the evaluated code');
+                        logger.error('No valid function found in the evaluated code');
                         return null;
                     }
                     
-                    console.log('Successfully recreated resume function from code file.');
+                    logger.debug('Successfully recreated resume function from code file.');
                     
                     // Log function details
-                    console.log('Resume function type:', typeof state.mainFn);
-                    console.log('Resume function available:', state.mainFn !== null && state.mainFn !== undefined);
+                    logger.debug('Resume function type:', typeof state.mainFn);
+                    logger.debug('Resume function available:', state.mainFn !== null && state.mainFn !== undefined);
                     if (typeof state.mainFn === 'function') {
-                        console.log('Resume function is a valid function');
+                        logger.debug('Resume function is a valid function');
                     } else {
-                        console.log('Resume function is not a valid function:', state.mainFn);
+                        logger.debug('Resume function is not a valid function:', state.mainFn);
                     }
                 } catch (error) {
-                    console.error('Error recreating resume function:', error);
+                    logger.error('Error recreating resume function:', error);
                     return null;
                 }
             }
             
             return state;
         } catch (error) {
-            console.error('Error loading action state:', error);
+            logger.error('Error loading action state:', error);
             return null;
         }
     }
@@ -406,7 +410,7 @@ export class ActionStateManager {
             }
             return [];
         } catch (error) {
-            console.error('Error getting saved action names:', error);
+            logger.error('Error getting saved action names:', error);
             return [];
         }
     }
@@ -419,11 +423,11 @@ export class ActionStateManager {
     createActionHash(actionName) {
         // Use a simple hash function that's fast and produces a consistent length
         // if actionName has newAction: in it, remove that from it
-        if (actionName.startsWith('newAction:')) {
-            actionName = actionName.substring('newAction:'.length).trim();
-            console.log(`Using extracted prompt as action name: "${actionName}"`);
+        if (actionName.startsWith('action:newAction:')) {
+            actionName = actionName.substring('action:newAction:'.length).trim();
+            logger.debug(`Using extracted prompt as action name: "${actionName}"`);
         } else {
-            console.log(`Using action name: "${actionName}"`)
+            logger.debug(`Using action name: "${actionName}"`)
         }
         let hash = 0;
         // Iterate through the action name multiple times to increase hash length
@@ -457,7 +461,18 @@ export class ActionStateManager {
         try {
             await writeFileAsync(filePath, JSON.stringify(state, null, 2));
         } catch (error) {
-            console.error('Error saving state to file:', error);
+            logger.error('Error saving state to file:', error);
+        }
+        // delete files in that directory which are older than 48 hours
+        const now = Date.now();
+        const files = await readdirAsync(this.stateFolderPath);
+        for (const file of files) {
+            const filePath = path.join(this.stateFolderPath, file);
+            const stats = await statAsync(filePath);
+            // delete files that are older than 48 hours
+            if (now - stats.mtime.getTime() > 48 * 60 * 60 * 1000) {
+                await unlinkAsync(filePath);
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 import { io } from 'socket.io-client';
 import settings from '../../settings.js';
+import { logger } from '../utils/logger.js';
 
 // Singleton mindserver proxy for the main process
 class MainProxy {
@@ -33,11 +34,11 @@ class MainProxy {
         });
 
         this.socket.on('register-agents-success', () => {
-            console.log('Agents registered');
+            logger.debug('Agents registered');
         });
 
         this.socket.on('shutdown', () => {
-            console.log('Shutting down');
+            logger.debug('Shutting down');
             for (let agentName in this.agent_processes) {
                 this.agent_processes[agentName].stop();
             }

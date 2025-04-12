@@ -1,7 +1,9 @@
 import { ActionStateManager } from '../action_state_manager.js';
 import settings from '../../../settings.js';
 import pf from 'mineflayer-pathfinder';
-
+import Vec3 from 'vec3';
+import * as skills from '../library/skills.js';
+import { logger } from '../../utils/logger.js';
 // Map to store action state managers for each agent
 const stateManagerCache = new Map();
 
@@ -36,7 +38,7 @@ export const actionStateCommands = [
                 if (!state) {
                     const savedActions = await stateManager.getSavedActionNames();
                     if (savedActions.length > 0) {
-                        return `No saved state found for action '${actionName}'. Available actions are: ${savedActions.join('\r\n ')}`;
+                        return `No saved state found for action '${actionName}'. Available actions are: ${savedActions.join(' | ')}`;
                     } else {
                         return `No saved state found for action '${actionName}'. No saved actions available.`;
                     }
@@ -49,10 +51,17 @@ export const actionStateCommands = [
                     return `Cannot resume action '${actionName}': Unable to recover the execution function. The code file may have been deleted or is not accessible.`;
                 }
                 try {
-                    agent.bot.pathfinder.setMovements(new pf.Movements(agent.bot));
-                    await agent.bot.pathfinder.goto(new pf.goals.GoalNear(state.position.x, state.position.y, state.position.z, 0));
+                    logger.debug("going to resume position...");
+                    const positionVec = new Vec3(state.position.x, state.position.y, state.position.z);
+                    await skills.goToPosition(agent.bot, positionVec.x, positionVec.y, positionVec.z, 0);
+                    if (agent.bot.entity.position.distanceTo(positionVec) > 1) {
+                        skills.log(agent.bot, `Failed to move to resume position: ${agent.bot.entity.position.distanceTo(positionVec)}`);
+                        return `Failed to move to resume position: ${agent.bot.entity.position.distanceTo(positionVec)}`;
+                    }
+                    await agent.bot.lookAt(positionVec);
                 } catch (error) {
                     console.error('Error moving to position:', error);
+                    agent.bot.output += 'Error moving to position at resume start: ' + error.message + '\r\n';
                     return `Error moving to position: ${error.message}`;
                 }
                 
@@ -79,8 +88,10 @@ export const actionStateCommands = [
                 if (!exists) {
                     const savedActions = await stateManager.getSavedActionNames();
                     if (savedActions.length > 0) {
-                        return `No saved state found for action '${actionName}'. Available actions are: ${savedActions.join('\r\n ')}`;
+                        skills.log(agent.bot, `No saved state found for action '${actionName}'. Available actions are: ${savedActions.join(' | ')}`);
+                        return `No saved state found for action '${actionName}'. Available actions are: ${savedActions.join(' | ')}`;
                     } else {
+                        skills.log(agent.bot, `No saved state found for action '${actionName}'. No saved actions available.`);
                         return `No saved state found for action '${actionName}'. No saved actions available.`;
                     }
                 }
@@ -88,8 +99,16 @@ export const actionStateCommands = [
                 // Cancel the state
                 const success = await stateManager.cancelActionState(actionName);
                 if (success) {
+                    skills.log(agent.bot, `Canceled action state '${actionName}'.`);
+                    const savedActions = await stateManager.getSavedActionNames();
+                    if (savedActions.length > 0) {
+                        skills.log(agent.bot, `Available actions are: ${savedActions.join(' | ')}`);
+                    } else {
+                        skills.log(agent.bot, `No saved actions remaining.`);
+                    }
                     return `Canceled action state '${actionName}'.`;
                 } else {
+                    skills.log(agent.bot, `Failed to cancel action state '${actionName}'.`);
                     return `Failed to cancel action state '${actionName}'.`;
                 }
             } catch (error) {

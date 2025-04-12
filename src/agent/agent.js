@@ -1,5 +1,6 @@
 import { History } from './history.js';
 import { Coder } from './coder.js';
+import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
 import { initModes } from './modes.js';
 import { initBot } from '../utils/mcdata.js';
@@ -10,106 +11,101 @@ import { MemoryBank } from './memory_bank.js';
 import { SelfPrompter } from './self_prompter.js';
 import convoManager from './conversation.js';
 import { handleTranslation, handleEnglishTranslation } from '../utils/translator.js';
-import { addViewer } from './viewer.js';
+import { addBrowserViewer } from './vision/browser_viewer.js';
 import settings from '../../settings.js';
 import { serverProxy } from './agent_proxy.js';
 import { Task } from './tasks.js';
+import { say } from './speak.js';
+import { logger } from '../utils/logger.js';
+import { spawn } from 'child_process';
 
 export class Agent {
     async start(profile_fp, load_mem=false, init_message=null, count_id=0, task_path=null, task_id=null) {
         this.last_sender = null;
         this.count_id = count_id;
-        try {
-            if (!profile_fp) {
-                throw new Error('No profile filepath provided');
-            }
-            
-            console.log('Starting agent initialization with profile:', profile_fp);
-            
-            // Initialize components with more detailed error handling
-            console.log('Initializing action manager...');
-            this.actions = new ActionManager(this);
-            console.log('Initializing prompter...');
-            this.prompter = new Prompter(this, profile_fp);
-            this.name = this.prompter.getName();
-            console.log('Initializing history...');
-            this.history = new History(this);
-            console.log('Initializing coder...');
-            this.coder = new Coder(this);
-            console.log('Initializing npc controller...');
-            this.npc = new NPCContoller(this);
-            console.log('Initializing memory bank...');
-            this.memory_bank = new MemoryBank();
-            console.log('Initializing self prompter...');
-            this.self_prompter = new SelfPrompter(this);
-            convoManager.initAgent(this);            
-            console.log('Initializing examples...');
-            await this.prompter.initExamples();
-            console.log('Initializing task...');
-            this.task = new Task(this, task_path, task_id);
-            const blocked_actions = this.task.blocked_actions || [];
-            blacklistCommands(blocked_actions);
-
-            serverProxy.connect(this);
-
-            console.log(this.name, 'logging into minecraft...');
-            this.bot = initBot(this.name);
-
-            initModes(this);
-
-            let save_data = null;
-            if (load_mem) {
-                save_data = this.history.load();
-            }
-
-            this.bot.on('login', () => {
-                console.log(this.name, 'logged in!');
-
-                serverProxy.login();
-                
-                // Set skin for profile, requires Fabric Tailor. (https://modrinth.com/mod/fabrictailor)
-                if (this.prompter.profile.skin)
-                    this.bot.chat(`/skin set URL ${this.prompter.profile.skin.model} ${this.prompter.profile.skin.path}`);
-                else
-                    this.bot.chat(`/skin clear`);
-            });
-
-            const spawnTimeout = setTimeout(() => {
-                process.exit(0);
-            }, 30000);
-            this.bot.once('spawn', async () => {
-                try {
-                    clearTimeout(spawnTimeout);
-                    addViewer(this.bot, count_id);
-
-                    // wait for a bit so stats are not undefined
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                    
-                    console.log(`${this.name} spawned.`);
-                    this.clearBotLogs();
-
-                    this._setupEventHandlers(save_data, init_message);
-                    this.startEvents();
-
-                    // this.task.initBotTask();
-
-                    if (!load_mem) {
-                        this.task.initBotTask();
-                    }
-
-                } catch (error) {
-                    console.error('Error in spawn event:', error);
-                    process.exit(0);
-                }
-            });
-        } catch (error) {
-            // Ensure we're not losing error details
-            console.error('Agent start failed with error')
-            console.error(error.message);
-            console.error(error.stack);
-
-            throw error; // Re-throw with preserved details
+        if (!profile_fp) {
+            throw new Error('No profile filepath provided');
         }
+        
+        logger.debug('Starting agent initialization with profile:', profile_fp);
+        
+        // Initialize components with more detailed error handling
+        logger.debug('Initializing action manager...');
+        this.actions = new ActionManager(this);
+        logger.debug('Initializing prompter...');
+        this.prompter = new Prompter(this, profile_fp);
+        this.name = this.prompter.getName();
+        logger.debug('Initializing history...');
+        this.history = new History(this);
+        logger.debug('Initializing coder...');
+        this.coder = new Coder(this);
+        logger.debug('Initializing npc controller...');
+        this.npc = new NPCContoller(this);
+        logger.debug('Initializing memory bank...');
+        this.memory_bank = new MemoryBank();
+        logger.debug('Initializing self prompter...');
+        this.self_prompter = new SelfPrompter(this);
+        convoManager.initAgent(this);            
+        logger.debug('Initializing examples...');
+        await this.prompter.initExamples();
+        logger.debug('Initializing task...');
+        this.task = new Task(this, task_path, task_id);
+        const blocked_actions = settings.blocked_actions.concat(this.task.blocked_actions || []);
+        blacklistCommands(blocked_actions);
+
+        serverProxy.connect(this);
+
+        logger.debug(this.name, 'logging into minecraft...');
+        this.bot = initBot(this.name);
+
+        initModes(this);
+
+        let save_data = null;
+        if (load_mem) {
+            save_data = this.history.load();
+        }
+
+        this.bot.on('login', () => {
+            logger.debug(this.name, 'logged in!');
+
+            serverProxy.login();
+            
+            // Set skin for profile, requires Fabric Tailor. (https://modrinth.com/mod/fabrictailor)
+            if (this.prompter.profile.skin)
+                this.bot.chat(`/skin set URL ${this.prompter.profile.skin.model} ${this.prompter.profile.skin.path}`);
+            else
+                this.bot.chat(`/skin clear`);
+        });
+
+        const spawnTimeout = setTimeout(() => {
+            process.exit(0);
+        }, 30000);
+        this.bot.once('spawn', async () => {
+            try {
+                clearTimeout(spawnTimeout);
+                addBrowserViewer(this.bot, count_id);
+
+                // wait for a bit so stats are not undefined
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                
+                logger.debug(`${this.name} spawned.`);
+                this.clearBotLogs();
+
+                this._setupEventHandlers(save_data, init_message);
+                this.startEvents();
+
+                if (!load_mem) {
+                    this.task.initBotTask();
+                }
+
+                logger.debug('Initializing vision intepreter...');
+                this.vision_interpreter = new VisionInterpreter(this, settings.allow_vision);
+
+            } catch (error) {
+                console.error('Error in spawn event:', error);
+                process.exit(0);
+            }
+        });
     }
 
     async _setupEventHandlers(save_data, init_message) {
@@ -130,15 +126,11 @@ export class Agent {
 
                 this.shut_up = false;
 
-                console.log(this.name, 'received message from', username, ':', message);
-
-                if (convoManager.isOtherAgent(username)) {
-                    console.warn('received whisper from other bot??')
-                }
-                else {
-                    let translation = await handleEnglishTranslation(message);
-                    this.handleMessage(username, translation);
-                }
+                logger.debug(this.name, 'received message from', username, ':', message);
+                
+                // // Process normally
+                let translation = await handleEnglishTranslation(message);
+                this.handleMessage(username, translation);
             } catch (error) {
                 console.error('Error handling message:', error);
             }
@@ -165,16 +157,9 @@ export class Agent {
         }
         if (save_data?.last_sender) {
             this.last_sender = save_data.last_sender;
-            if (convoManager.otherAgentInGame(this.last_sender)) {
-                const msg_package = {
-                    message: `You have restarted and this message is auto-generated. Continue the conversation with me.`,
-                    start: true
-                };
-                convoManager.receiveFromBot(this.last_sender, msg_package);
-            }
         }
         else if (init_message) {
-            await this.handleMessage('system', init_message, 2);
+            await this.handleMessage('system', init_message, 2, true);
         }
         else {
             this.openChat("Hello world! I am "+this.name);
@@ -182,10 +167,15 @@ export class Agent {
     }
 
     requestInterrupt() {
-        this.bot.interrupt_code = true;
-        this.bot.collectBlock.cancelTask();
-        this.bot.pathfinder.stop();
-        this.bot.pvp.stop();
+		try {
+	        this.bot.interrupt_code = true;
+	        this.bot.stopDigging();
+	        this.bot.collectBlock.cancelTask();
+	        this.bot.pathfinder.stop();
+	        this.bot.pvp.stop();
+        } catch (error) {
+            console.error('Error requesting interrupt:', error);
+        }
     }
 
     clearBotLogs() {
@@ -198,187 +188,436 @@ export class Agent {
         if (this.self_prompter.isActive()) {
             this.self_prompter.stop(false);
         }
-        convoManager.endAllConversations();
     }
 
-    async handleMessage(source, message, max_responses=null) {
-        if (!source || !message) {
-            console.warn('Received empty message from', source);
+    _pendingUserMessages = false;
+    _userMessageTimeout = null;
+
+    _mutex = Promise.resolve(); // Initially unlocked
+
+    // Helper method to ensure atomic operations on critical variables
+    async _withLock(operation) {
+        // Create a new mutex that resolves when operation completes
+        const unlock = await this._mutex.then(() => {
+            // Return a function that will resolve the next waiting operation
+            let unlockNext;
+            const unlockPromise = new Promise(resolve => {
+                unlockNext = resolve;
+            });
+            
+            // Set the new mutex to this operation's unlock promise
+            this._mutex = unlockPromise;
+            
+            // Return the unlock function
+            return unlockNext;
+        });
+        
+        try {
+            // Execute the critical operation
+            return await operation();
+        } finally {
+            // Release the lock regardless of success/failure
+            unlock();
+        }
+    }
+
+    // batch with priority and immediate processing
+    // async handleMessage(source, message, max_responses=null, awaitResponse=false) {
+    //     try {
+    //         if (!source || !message) {
+    //             console.warn('Received empty message from', source);
+    //             return false;
+    //         }
+    //         // Really don't like seeing this message spammed, wasting API calls on other bots
+    //         if (message === 'My brain disconnected, try again.') {
+    //             console.warn(`${source}: My brain disconnected, try again.`);
+    //             return false;
+    //         }
+    //         logger.debug(`${source}: ${message}`);
+    //         const needsImmediateProcessing = (
+    //             source === 'system' || 
+    //             awaitResponse || 
+    //             !this.prompter.generatingPrompt
+    //         );
+    //         logger.debug('Needs immediate processing:', needsImmediateProcessing);
+    //         // If we need immediate processing and generation is already happening,
+    //         // wait for it to finish first
+    //         logger.debug('Checking for existing generation...');
+    //         if (needsImmediateProcessing && this.prompter.generatingPrompt) {
+    //             logger.debug(`Waiting for existing generation to complete before processing ${source} message`);
+    //             await new Promise(resolve => {
+    //                 const checkInterval = setInterval(() => {
+    //                     if (!this.prompter.generatingPrompt) {
+    //                         clearInterval(checkInterval);
+    //                         resolve();
+    //                     }
+    //                 }, 1000);
+    //             });
+    //         }
+    //         logger.debug('Checked for existing generation');
+    //         // For immediate processing, process now
+    //         logger.debug('Checking for immediate processing...');
+    //         if (needsImmediateProcessing) {
+    //             logger.debug('Processing immediate message...');
+    //             return await this._processMessage(source, message, max_responses);
+    //         }
+    //         logger.debug('Checked for immediate processing');
+    //         // For batch processing, add to batch
+    //         logger.debug('Checking for batch processing...');
+    //         return await this._withLock(async () => {
+    //             // Check if already batching
+    //             if (this._pendingUserMessages && awaitResponse === false) {
+    //                 logger.debug('Already batching, skipping message...');
+    //                 return true;
+    //             }
+                
+    //             // For regular user messages during generation, flag for later batch processing
+    //             logger.debug(`Batching message from ${source} for later processing`);
+                
+    //             this._pendingUserMessages = true;
+                
+    //             // Schedule batch processing if not already scheduled
+    //             if (!this._userMessageTimeout) {
+    //                 this._userMessageTimeout = setTimeout(async () => {
+    //                     try {
+    //                         // Lock again when the timer fires to safely reset state
+    //                         await this._withLock(async () => {
+    //                             this._userMessageTimeout = null;
+                                
+    //                             if (this._pendingUserMessages && !this.prompter.generatingPrompt) {
+    //                                 logger.debug('Processing batched user messages');
+                                    
+    //                                 // Reset flag BEFORE processing to prevent race conditions
+    //                                 this._pendingUserMessages = false;
+                                    
+    //                                 // Process outside the lock to allow new batches to form
+    //                                 setTimeout(() => {
+    //                                     this._processMessage(source, message, 1)
+    //                                         .catch(err => {
+    //                                             console.error('Error processing batch:', err);
+    //                                             // Reset pending flag in case of error to unblock the system
+    //                                             this._pendingUserMessages = false;
+    //                                             this._retryCount = 0;
+    //                                         });
+    //                                 }, 0);
+    //                             } else {
+    //                                 logger.debug('Skipping due to gen in progress: ', this._pendingUserMessages, this.prompter.generatingPrompt);
+    //                                 // Set up retry with counter
+    //                                 const retryCount = this._retryCount || 0;
+    //                                 if (retryCount < 5) {
+    //                                     setTimeout(() => {
+    //                                         this._userMessageTimeout = null;
+    //                                         this._retryCount = retryCount + 1;
+    //                                         logger.debug(`Retry attempt ${retryCount + 1}/5 for batched message`);
+    //                                         this.handleMessage(source, message, 1, false)
+    //                                             .catch(err => {
+    //                                                 console.error('Error in retry attempt:', err);
+    //                                                 // Reset pending flag in case of error to unblock the system
+    //                                                 this._pendingUserMessages = false;
+    //                                                 this._retryCount = 0;
+    //                                             });
+    //                                     }, 500);
+    //                                 } else {
+    //                                     logger.debug('Max retries reached, giving up on batched message');
+    //                                     this._pendingUserMessages = false;
+    //                                     this._retryCount = 0;
+    //                                 }
+    //                             }
+    //                         }).catch(err => {
+    //                             console.error('Lock acquisition error in timeout:', err);
+    //                             // Ensure we reset state in case of error with the lock itself
+    //                             this._pendingUserMessages = false;
+    //                             this._userMessageTimeout = null;
+    //                             this._retryCount = 0;
+    //                         });
+    //                     } catch (outerError) {
+    //                         // Catch any errors that might occur outside the lock
+    //                         console.error('Fatal error in batch processing timeout:', outerError);
+    //                         // Reset all state to ensure system doesn't get stuck
+    //                         this._pendingUserMessages = false;
+    //                         this._userMessageTimeout = null;
+    //                         this._retryCount = 0;
+    //                     }
+    //                 }, 1000);
+    //             }
+    //             // Non-awaited calls just return true
+    //             logger.debug('Non-awaited return')
+    //             return true;
+    //         });
+    //     } catch (error) {
+    //         console.error('Error in handleMessage:', error);
+    //         this._pendingUserMessages = false;
+    //         return false;
+    //     }
+    // }
+
+    // batch everything no prioritizing or immediate processing.
+    async handleMessage(source, message, max_responses=null, awaitResponse=false) {
+        try {
+            if (!source || !message) {
+                console.warn('Received empty message from', source);
+                return false;
+            }
+            // Really don't like seeing this message spammed, wasting API calls on other bots
+            if (message === 'My brain disconnected, try again.') {
+                console.warn(`${source}: My brain disconnected, try again.`);
+                return false;
+            }
+            logger.debug(`${source}: ${message}`);
+            
+            // Simplified logic: if not generating, process immediately; otherwise batch
+            if (!this.prompter.generatingPrompt) {
+                logger.debug('No generation in progress, processing immediately...');
+                return await this._processMessage(source, message, max_responses);
+            }
+            
+            // If generation is in progress, batch the message
+            logger.debug('Generation in progress, checking for batch processing...');
+            return await this._withLock(async () => {
+                // Check if already batching
+                if (this._pendingUserMessages) {
+                    logger.debug('Already batching, skipping message...');
+                    return true;
+                }
+                
+                // Flag for batch processing
+                logger.debug(`Batching message from ${source} for later processing`);
+                this._pendingUserMessages = true;
+                
+                // Schedule batch processing if not already scheduled
+                if (!this._userMessageTimeout) {
+                    this._userMessageTimeout = setTimeout(async () => {
+                        try {
+                            // Lock again when the timer fires to safely reset state
+                            await this._withLock(async () => {
+                                this._userMessageTimeout = null;
+                                
+                                if (this._pendingUserMessages && !this.prompter.generatingPrompt) {
+                                    logger.debug('Processing batched user messages');
+                                    
+                                    // Reset flag BEFORE processing to prevent race conditions
+                                    this._pendingUserMessages = false;
+                                    
+                                    // Process outside the lock to allow new batches to form
+                                    setTimeout(() => {
+                                        this._processMessage(source, message, 1)
+                                            .catch(err => {
+                                                console.error('Error processing batch:', err);
+                                                // Reset pending flag in case of error to unblock the system
+                                                this._pendingUserMessages = false;
+                                                this._retryCount = 0;
+                                            });
+                                    }, 0);
+                                } else {
+                                    logger.debug('Skipping due to gen in progress: ', this._pendingUserMessages, this.prompter.generatingPrompt);
+                                    // Set up retry with counter
+                                    const retryCount = this._retryCount || 0;
+                                    if (retryCount < 5) {
+                                        setTimeout(() => {
+                                            this._userMessageTimeout = null;
+                                            this._retryCount = retryCount + 1;
+                                            logger.debug(`Retry attempt ${retryCount + 1}/5 for batched message`);
+                                            this.handleMessage(source, message, 1, false)
+                                                .catch(err => {
+                                                    console.error('Error in retry attempt:', err);
+                                                    // Reset pending flag in case of error to unblock the system
+                                                    this._pendingUserMessages = false;
+                                                    this._retryCount = 0;
+                                                });
+                                        }, 500);
+                                    } else {
+                                        logger.debug('Max retries reached, giving up on batched message');
+                                        this._pendingUserMessages = false;
+                                        this._retryCount = 0;
+                                    }
+                                }
+                            }).catch(err => {
+                                console.error('Lock acquisition error in timeout:', err);
+                                // Ensure we reset state in case of error with the lock itself
+                                this._pendingUserMessages = false;
+                                this._userMessageTimeout = null;
+                                this._retryCount = 0;
+                            });
+                        } catch (outerError) {
+                            // Catch any errors that might occur outside the lock
+                            console.error('Fatal error in batch processing timeout:', outerError);
+                            // Reset all state to ensure system doesn't get stuck
+                            this._pendingUserMessages = false;
+                            this._userMessageTimeout = null;
+                            this._retryCount = 0;
+                        }
+                    }, 1000);
+                }
+                // Non-awaited calls just return true
+                logger.debug('Non-awaited return')
+                return true;
+            });
+        } catch (error) {
+            console.error('Error in handleMessage:', error);
+            this._pendingUserMessages = false;
             return false;
         }
+    }
 
-        let used_command = false;
-        if (max_responses === null) {
-            max_responses = settings.max_commands === -1 ? Infinity : settings.max_commands;
-        }
-        if (max_responses === -1) {
-            max_responses = Infinity;
-        }
-
-        const self_prompt = source === 'system' || source === this.name;
-        const from_other_bot = convoManager.isOtherAgent(source);
-
-        // debug acdx removed this, i dont think its right to let users directly run commands
-        // if (!self_prompt && !from_other_bot) { // from user, check for forced commands
-        //     const user_command_name = containsCommand(message);
-        //     if (user_command_name) {
-        //         if (!commandExists(user_command_name)) {
-        //             this.routeResponse(source, `Command '${user_command_name}' does not exist.`);
-        //             return false;
-        //         }
-        //         this.routeResponse(source, `*${source} used ${user_command_name.substring(1)}*`);
-        //         if (user_command_name === '!newAction') {
-        //             // all user-initiated commands are ignored by the bot except for this one
-        //             // add the preceding message to the history to give context for newAction
-        //             this.history.add(source, message);
-        //         }
-        //         let execute_res = await executeCommand(this, message);
-        //         if (execute_res) 
-        //             this.routeResponse(source, execute_res);
-        //         return true;
-        //     }
-        // }
-
-        if (from_other_bot)
-            this.last_sender = source;
-
-        // Now translate the message
-        message = await handleEnglishTranslation(message);
-        console.log('received message from', source, ':', message);
-        
-        // Store important user messages as long-term memories
-        if (!self_prompt && !from_other_bot && this.prompter && this.prompter.vectorClient) {
-            try {
-                // Only process messages from users (not system or other bots)
-                const formattedMessage = `${source}: ${message}`;
-                console.log('Storing memory from message:', formattedMessage.substring(0, 50) + (formattedMessage.length > 50 ? '...' : ''));
-                
-                // Process and store the memory (with medium importance by default)
-                this.prompter.promptMemoryStorage(formattedMessage, "medium").catch(err => {
-                    console.warn('Failed to store memory:', err);
-                });
-            } catch (error) {
-                console.warn('Error processing message for memory storage:', error);
-                // Continue with normal message processing even if memory storage fails
+    async _processMessage(source, message, max_responses) {
+    	try {
+	        if (!source || !message) {
+	            console.warn('Received empty message from', source);
+                return false;
             }
-        }
+			logger.debug(`${source}: ${message}`);
+        	let used_command = false;
+        	if (max_responses === null) {
+            	max_responses = settings.max_commands === -1 ? Infinity : settings.max_commands;
+        	}
+	        if (max_responses === -1) {
+	            max_responses = Infinity;
+			}
 
-        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
-        
-        let behavior_log = this.bot.modes.flushBehaviorLog();
-        if (behavior_log.trim().length > 0) {
-            const MAX_LOG = 500;
-            if (behavior_log.length > MAX_LOG) {
-                behavior_log = '...' + behavior_log.substring(behavior_log.length - MAX_LOG);
-            }
-            behavior_log = 'Recent behaviors log: \n' + behavior_log.substring(behavior_log.indexOf('\n'));
-            await this.history.add('system', behavior_log);
-        }
+	        const self_prompt = source === 'system' || source === this.name;
+	        const from_other_bot = convoManager.isOtherAgent(source);
 
-        // Handle other user messages
-        await this.history.add(source, message);
-        this.history.save();
+	        if (from_other_bot)
+	            this.last_sender = source;
 
-        if (!self_prompt && this.self_prompter.isActive()) // message is from user during self-prompting
-            max_responses = 1; // force only respond to this message, then let self-prompting take over
-        for (let i=0; i<max_responses; i++) {
-            if (checkInterrupt()) break;
-            let history = this.history.getHistory();
-            let res = await this.prompter.promptConvo(history);
+            // Now translate the message
+            message = await handleEnglishTranslation(message);
+            logger.debug('received message from', source, ':', message);
 
-            console.log(`${this.name} full response to ${source}: ""${res}""`);
+            const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up;
             
-            if (res.trim().length === 0) { 
-                console.warn('no response')
-                break; // empty response ends loop
-            }
-
-            let command_name = containsCommand(res);
-
-            if (command_name) { // contains query or command
-                res = truncCommandMessage(res); // everything after the command is ignored
-                this.history.add(this.name, res);
-                
-                if (!commandExists(command_name)) {
-                    this.history.add('system', `Command ${command_name} does not exist.`);
-                    console.warn('Agent hallucinated command:', command_name)
-                    continue;
+            let behavior_log = this.bot.modes.flushBehaviorLog();
+            if (behavior_log.trim().length > 0) {
+                const MAX_LOG = 500;
+                if (behavior_log.length > MAX_LOG) {
+                    behavior_log = '...' + behavior_log.substring(behavior_log.length - MAX_LOG);
                 }
-
+                behavior_log = 'Recent behaviors log: \n' + behavior_log.substring(behavior_log.indexOf('\n'));
+                await this.history.add('system', behavior_log);
+            }
+            logger.debug('Saving History');
+            // handle other user messages
+            await this.history.add(source, message);
+            await this.history.save();
+            logger.debug('Saved History');
+            let res = '';
+            if (!self_prompt && this.self_prompter.isActive()) // message is from user during self-prompting
+                max_responses = 1; // force only respond to this message, then let self-prompting take over
+            logger.debug('Starting Prompting');
+            for (let i=0; i<max_responses; i++) {
                 if (checkInterrupt()) break;
-                this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
-
-                if (settings.verbose_commands) {
-                    this.routeResponse(source, res);
+                logger.debug('Prompting');
+                let history = this.history.getHistory();
+                logger.debug('Got History');
+                try {
+                    logger.debug('Prompting');
+                    res = await this.prompter.promptConvo(history);
+                    logger.debug('Got Response');
+                } catch (error) {
+                    console.error('Error getting response:', error.substring(0, 100));
+                    continue; // try again
                 }
-                else { // only output command name
-                    let pre_message = res.substring(0, res.indexOf(command_name)).trim();
-                    let chat_message = `*used ${command_name.substring(1)}*`;
-                    if (pre_message.length > 0)
-                        chat_message = `${pre_message}  ${chat_message}`;
-                    this.routeResponse(source, chat_message);
+
+                logger.debug(`${this.name} full response to ${source}: ""${res}""`);
+                
+                if (res.trim().length === 0) { 
+                    console.warn('no response')
+                    break; // empty response ends loop
+                }
+                
+                // Check for !ignore
+                if (res.includes('!ignore')) {
+                    logger.debug(`Ignoring message from ${source} based on AI directive: ${res}`);
+                    break; // Skip processing this response entirely
                 }
 
-                let execute_res = await executeCommand(this, res);
+                let command_name = containsCommand(res);
 
-                console.log('Agent executed:', command_name, 'and got:', execute_res);
-                used_command = true;
-
-                if (execute_res) {
-                    this.history.add('system', execute_res);
+                if (command_name) { // contains query or command
+                    logger.debug('contains command', command_name, 'from res:', res);
+                    res = truncCommandMessage(res); // everything after the command is ignored
+                    await this.history.add(this.name, res);
                     
-                    // Store important command results as memories
-                    if (this.prompter && this.prompter.vectorClient && 
-                        ['!craftItem', '!build', '!collectBlocks', '!attack'].some(cmd => command_name.startsWith(cmd))) {
-                        const commandMemory = `${this.name} used ${command_name} with result: ${execute_res}`;
-                        this.prompter.promptMemoryStorage(commandMemory, "high").catch(err => {
-                            console.warn('Failed to store command memory:', err);
-                        });
+                    if (!commandExists(command_name)) {
+                        await this.history.add('system', `Command ${command_name} does not exist.`);
+                        console.warn('Agent hallucinated command:', command_name)
+                        continue;
                     }
-                }
-                else
-                    break;
-            }
-            else { // conversation response
-                this.history.add(this.name, res);
-                this.routeResponse(source, res);
-                
-                // Store the agent's own responses as memories if they seem important
-                if (this.prompter && this.prompter.vectorClient && 
-                    (res.includes('important') || res.includes('remember') || res.includes('learned'))) {
-                    const responseMemory = `${this.name} told ${source}: ${res}`;
-                    this.prompter.promptMemoryStorage(responseMemory, "medium").catch(err => {
-                        console.warn('Failed to store response memory:', err);
-                    });
-                }
-                
-                break;
-            }
-            
-            this.history.save();
-        }
 
-        return used_command;
+                    if (checkInterrupt()) break;
+                    this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
+
+                    if (settings.verbose_commands) {
+                        await this.routeResponse(source, res);
+                    }
+                    else { // only output command name
+                        let pre_message = res.substring(0, res.indexOf(command_name)).trim();
+                        let chat_message = `*used ${command_name.substring(1)}*`;
+                        if (pre_message.length > 0)
+                            chat_message = `${pre_message}`; //  ${chat_message}`;
+                        this.routeResponse(source, chat_message);
+                    }
+
+                    let execute_res = await executeCommand(this, res);
+                    if (!execute_res) {
+                        execute_res = `Command ${command_name} execution was stopped.`;
+                    }
+
+                    logger.debug('Agent executed:', command_name, 'and got:', execute_res);
+                    used_command = true;
+
+                    if (execute_res) {
+                        await this.history.add('system', execute_res);
+                        
+                        // // Store important command results as memories
+                        // if (this.prompter && this.prompter.vectorClient && 
+                        //     ['!craftItem', '!build', '!collectBlocks', '!attack'].some(cmd => command_name.startsWith(cmd))) {
+                        //     const commandMemory = `${this.name} used ${command_name} with result: ${execute_res}`;
+                        //     await this.prompter.promptMemoryStorage(commandMemory, "high").catch(err => {
+                        //         console.warn('Failed to store command memory:', err);
+                        //     });
+                        // }
+                    }
+                    else
+                        break;
+                }
+                else { // conversation response
+                    await this.routeResponse(source, res);
+                    await this.history.add(this.name, res);
+                    // // Store the agent's own responses as memories if they seem important
+                    // if (this.prompter && this.prompter.vectorClient && 
+                    //     (res.includes('important') || res.includes('remember') || res.includes('learned'))) {
+                    //     const responseMemory = `${this.name} told ${source}: ${res}`;
+                    //     await this.prompter.promptMemoryStorage(responseMemory, "medium").catch(err => {
+                    //         console.warn('Failed to store response memory:', err);
+                    //     });
+                    // }
+                    
+                    break;
+                }
+                
+                await this.history.save();
+            }
+
+            return used_command;
+        } catch (error) {
+            console.error('Error in _processMessage:', error);
+            return false;
+        }
     }
 
     async routeResponse(to_player, message) {
         if (this.shut_up) return;
         let self_prompt = to_player === 'system' || to_player === this.name;
         if (self_prompt && this.last_sender) {
-            // this is for when the agent is prompted by system while still in conversation
-            // so it can respond to events like death but be routed back to the last sender
             to_player = this.last_sender;
         }
 
-        if (convoManager.isOtherAgent(to_player) && convoManager.inConversation(to_player)) {
-            // if we're in an ongoing conversation with the other bot, send the response to it
-            convoManager.sendToBot(to_player, message);
-        }
-        else {
-            // otherwise, use open chat
+        // otherwise, use open chat
+        if (!message.startsWith('SYSTEM:') && !message.startsWith('Code output:')) {
             this.openChat(message);
-            // note that to_player could be another bot, but if we get here the conversation has ended
         }
+        // note that to_player could be another bot, but if we get here the conversation has ended
     }
 
     async openChat(message) {
@@ -400,6 +639,9 @@ export class Agent {
             }
         }
         else {
+	    if (settings.speak) {
+            say(to_translate);
+	    }
             this.bot.chat(message);
         }
     }
@@ -445,7 +687,7 @@ export class Agent {
         });
         this.bot.on('messagestr', async (message, _, jsonMsg) => {
             if (jsonMsg.translate && jsonMsg.translate.startsWith('death') && message.startsWith(this.name)) {
-                console.log('Agent died: ', message);
+                logger.debug('Agent died: ', message);
                 let death_pos = this.bot.entity.position;
                 this.memory_bank.rememberPlace('last_death_position', death_pos.x, death_pos.y, death_pos.z);
                 let death_pos_text = null;
@@ -457,11 +699,15 @@ export class Agent {
             }
         });
         this.bot.on('idle', () => {
-            this.bot.clearControlStates();
-            this.bot.pathfinder.stop(); // clear any lingering pathfinder
-            this.bot.modes.unPauseAll();
-            if (this.actions.resume_func) {
-                this.actions.resumeAction();
+			try {
+				this.bot.clearControlStates();
+                this.bot.pathfinder.stop(); // clear any lingering pathfinder
+                this.bot.modes.unPauseAll();
+                if (this.actions.resume_func) {
+                    this.actions.resumeAction();
+                }
+            } catch (error) {
+                console.error('Error in idle event:', error);
             }
         });
 
@@ -487,6 +733,9 @@ export class Agent {
     }
 
     async update(delta) {
+        if (this.prompter) {
+          this.cooldown = 2000;
+        }
         await this.bot.modes.update();
         this.self_prompter.update(delta);
         if (this.task.data) {
@@ -494,7 +743,7 @@ export class Agent {
             if (res) {
                 await this.history.add('system', `${res.message} ended with code : ${res.code}`);
                 await this.history.save();
-                console.log('Task finished:', res.message);
+                logger.debug('Task finished:', res.message);
                 this.killAll();
             }
         }
@@ -504,11 +753,40 @@ export class Agent {
         return !this.actions.executing && !this.coder.generating;
     }
     
+    // cleanKill(msg='Killing agent process...', code=1) {
+    //     this.history.add('system', msg);
+    //     this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
+    //     this.history.save();
+    //     process.exit(code);
+    // }
+
     cleanKill(msg='Killing agent process...', code=1) {
         this.history.add('system', msg);
-        this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
         this.history.save();
-        process.exit(code);
+        
+        if (code >= 0) {
+            // Get the command line arguments that were used to start this process
+            const args = process.argv.slice(1); // Remove 'node' from the arguments
+            const mainScript = args[0]; // The main script file
+            
+            // Set a delay to ensure history is saved before restarting
+            setTimeout(() => {
+                // Spawn a new process with the same arguments
+                const child = spawn(process.execPath, args, {
+                    detached: true,
+                    stdio: 'inherit'
+                });
+                
+                // Unref the child to allow the parent to exit
+                child.unref();
+                
+                // Exit the current process
+                process.exit(0);
+            }, 1000);
+        } else {
+            // Just exit without restarting
+            process.exit(code);
+        }
     }
 
     killAll() {

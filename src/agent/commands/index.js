@@ -2,6 +2,7 @@ import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import { actionStateCommands } from './action_state_commands.js';
+import { logger } from '../../utils/logger.js';
 
 let suppressNoDomainWarning = false;
 
@@ -100,23 +101,18 @@ export function parseCommandMessage(message) {
     if (!commandMatch) return `Command is incorrectly formatted`;
 
     const commandName = "!"+commandMatch[1];
-    
-    // Get command definition
-    const command = getCommand(commandName);
-    if(!command) return `${commandName} is not a command.`;
-    
-    // Handle argument parsing with improved error recovery
+
     let args;
     let parsedArgs = [];
     
-    // If we have arguments in the command
-    if (commandMatch[2]) {
-        args = commandMatch[2].match(argRegex);
-    } else {
-        args = [];
-    }
     
-    // Get parameter definitions
+    
+    if (commandMatch[2]) args = commandMatch[2].match(argRegex);
+    else args = [];
+
+    const command = getCommand(commandName);
+    if(!command) return `${commandName} is not a command.`
+
     const params = commandParams(command);
     const paramNames = commandParamNames(command);
     
@@ -230,7 +226,7 @@ export async function executeCommand(agent, message) {
     if (typeof parsed === 'string')
         return parsed; //The command was incorrectly formatted or an invalid input was given.
     else {
-        console.log('parsed command:', parsed);
+        logger.debug('parsed command:', parsed);
         const command = getCommand(parsed.commandName);
         let numArgs = 0;
         if (parsed.args) {
@@ -244,7 +240,7 @@ export async function executeCommand(agent, message) {
                 try {
                     // Create a unique key for this command and its arguments
                     const commandKey = `${command.name}:${parsed.args ? parsed.args.join(',') : ''}`;
-                    console.log(`Checking for cached command: ${commandKey}`);
+                    logger.debug(`Checking for cached command: ${commandKey}`);
                     
                     // Try to retrieve the cached result
                     const cachedResult = await retrieveCachedCommand(agent.prompter.vectorClient, 
@@ -252,10 +248,10 @@ export async function executeCommand(agent, message) {
                                                                      commandKey);
                     
                     if (cachedResult) {
-                        console.log(`Found cached result for command: ${commandKey}`);
+                        logger.debug(`Found cached result for command: ${commandKey}`);
                         return cachedResult;
                     } else {
-                        console.log(`No cached result found for command: ${commandKey}`);
+                        logger.debug(`No cached result found for command: ${commandKey}`);
                     }
                 } catch (error) {
                     console.error('Error checking command cache:', error);
@@ -265,7 +261,10 @@ export async function executeCommand(agent, message) {
             
             // Execute the command normally
             const result = await command.perform(agent, ...parsed.args);
-            
+            if (typeof result === 'boolean') {
+                result = result ? 'Success running ' + command.name : 'Possible failure running ' + command.name;
+            }
+            logger.debug("result", result);
             // Cache the result for future use
             if (agent.prompter && agent.prompter.vectorClient && result) {
                 try {
@@ -282,6 +281,22 @@ export async function executeCommand(agent, message) {
             return result;
         }
     }
+}
+
+function getBotOutputSummary() {
+    const { bot } = this.agent;
+    if (bot.interrupt_code && !this.timedout) return '';
+    let output = bot.output;
+    const MAX_OUT = 500;
+    if (output.length > MAX_OUT) {
+        output = `Action output is very long (${output.length} chars) and has been shortened.\n
+      First outputs:\n${output.substring(0, MAX_OUT / 2)}\n...skipping many lines.\nFinal outputs:\n ${output.substring(output.length - MAX_OUT / 2)}`;
+    }
+    else {
+        output = 'Action output:\n' + output.toString();
+    }
+    bot.output = '';
+    return output;
 }
 
 function attemptArgumentRecovery(message, commandName, params) {
@@ -377,7 +392,7 @@ async function retrieveCachedCommand(client, collectionName, commandKey) {
             await client.getCollection(collectionName);
         } catch (error) {
             // Collection doesn't exist yet
-            console.log(`Command cache collection ${collectionName} doesn't exist yet`);
+            logger.debug(`Command cache collection ${collectionName} doesn't exist yet`);
             return null;
         }
         
@@ -415,10 +430,10 @@ async function cacheCommandResult(client, collectionName, commandKey, result) {
         // Check if collection exists, create if it doesn't
         try {
             await client.getCollection(collectionName);
-            console.log(`Command cache collection ${collectionName} already exists.`);
+            logger.debug(`Command cache collection ${collectionName} already exists.`);
         } catch (error) {
             // Collection doesn't exist, create it
-            console.log(`Creating command cache collection ${collectionName}`);
+            logger.debug(`Creating command cache collection ${collectionName}`);
             await client.createCollection(collectionName, {
                 vectors: {
                     size: 4,  // Small vector size since we're using exact matching
@@ -443,7 +458,7 @@ async function cacheCommandResult(client, collectionName, commandKey, result) {
             }]
         });
         
-        console.log(`Cached command result for: ${commandKey}`);
+        logger.debug(`Cached command result for: ${commandKey}`);
         return true;
     } catch (error) {
         console.error('Error caching command result:', error);

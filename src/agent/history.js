@@ -1,7 +1,7 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { NPCData } from './npc/data.js';
 import settings from '../../settings.js';
-
+import { logger } from '../utils/logger.js';
 
 export class History {
     constructor(agent) {
@@ -31,7 +31,7 @@ export class History {
     }
 
     async summarizeMemories(turns) {
-        console.log("Storing memories...");
+        logger.debug("Storing memories...");
         this.memory = await this.agent.prompter.promptMemSaving(turns);
 
         if (this.memory.length > 500) {
@@ -39,7 +39,7 @@ export class History {
             this.memory += '...(Memory truncated to 500 chars. Compress it more next time)';
         }
 
-        console.log("Memory updated to: ", this.memory);
+        logger.debug("Memory updated to: ", this.memory);
     }
 
     async appendFullHistory(to_store) {
@@ -68,6 +68,7 @@ export class History {
             content = `${name}: ${content}`;
         }
         this.turns.push({role, content});
+        logger.debug('added turn:', {role, content});
 
         if (this.turns.length >= this.max_messages) {
             let chunk = this.turns.splice(0, this.summary_chunk_size);
@@ -89,7 +90,7 @@ export class History {
                 last_sender: this.agent.last_sender
             };
             writeFileSync(this.memory_fp, JSON.stringify(data, null, 2));
-            console.log('Saved memory to:', this.memory_fp);
+            logger.debug('Saved memory to:', this.memory_fp);
         } catch (error) {
             console.error('Failed to save history:', error);
             throw error;
@@ -99,13 +100,13 @@ export class History {
     load() {
         try {
             if (!existsSync(this.memory_fp)) {
-                console.log('No memory file found.');
+                logger.debug('No memory file found.');
                 return null;
             }
             const data = JSON.parse(readFileSync(this.memory_fp, 'utf8'));
             this.memory = data.memory || '';
             this.turns = data.turns || [];
-            console.log('Loaded memory:', this.memory);
+            logger.debug('Loaded memory:', this.memory);
             return data;
         } catch (error) {
             console.error('Failed to load history:', error);

@@ -1,13 +1,11 @@
 import { readFileSync, mkdirSync, writeFileSync} from 'fs';
 import { Examples } from '../utils/examples.js';
 import { getCommandDocs } from '../agent/commands/index.js';
-import { getSkillDocs } from '../agent/library/index.js';
 import { SkillLibrary } from "../agent/library/skill_library.js";
 import { stringifyTurns } from '../utils/text.js';
 import { getCommand } from '../agent/commands/index.js';
 import settings from '../../settings.js';
-import { QdrantClient } from '@qdrant/js-client-rest';
-
+import { logger } from '../utils/logger.js';
 import { Gemini } from './gemini.js';
 import { GPT } from './gpt.js';
 import { Claude } from './claude.js';
@@ -20,6 +18,8 @@ import { HuggingFace } from './huggingface.js';
 import { Qwen } from "./qwen.js";
 import { Grok } from "./grok.js";
 import { DeepSeek } from './deepseek.js';
+import { Hyperbolic } from './hyperbolic.js';
+import { GLHF } from './glhf.js';
 import { OpenRouter } from './openrouter.js';
 
 export class Prompter {
@@ -41,7 +41,6 @@ export class Prompter {
                 this.profile[key] = base_profile[key];
         }
         // base overrides default, individual overrides base
-
 
         this.convo_examples = null;
         this.coding_examples = null;
@@ -67,6 +66,14 @@ export class Prompter {
             this.code_model = this.chat_model;
         }
 
+        if (this.profile.vision_model) {
+            let vision_model_profile = this._selectAPI(this.profile.vision_model);
+            this.vision_model = this._createModel(vision_model_profile);
+        }
+        else {
+            this.vision_model = this.chat_model;
+        }
+
         let embedding = this.profile.embedding;
         if (embedding === undefined) {
             if (chat_model_profile.api !== 'ollama')
@@ -77,7 +84,7 @@ export class Prompter {
         else if (typeof embedding === 'string' || embedding instanceof String)
             embedding = {api: embedding};
 
-        console.log('Using embedding settings:', embedding);
+        logger.debug('Using embedding settings:', embedding);
 
         try {
             if (embedding.api === 'google')
@@ -104,20 +111,16 @@ export class Prompter {
         }
         catch (err) {
             console.warn('Warning: Failed to initialize embedding model:', err.message);
-            console.log('Continuing anyway, using word-overlap instead.');
+            logger.debug('Continuing anyway, using word-overlap instead.');
             this.embedding_model = null;
         }
-        
-        // Initialize vector database for long-term memory
-        this.initVectorMemory();
-        
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);
         mkdirSync(`./bots/${name}`, { recursive: true });
         writeFileSync(`./bots/${name}/last_profile.json`, JSON.stringify(this.profile, null, 4), (err) => {
             if (err) {
                 throw new Error('Failed to save profile:', err);
             }
-            console.log("Copy profile saved.");
+            logger.debug("Copy profile saved.");
         });
     }
 
@@ -126,10 +129,12 @@ export class Prompter {
             profile = {model: profile};
         }
         if (!profile.api) {
-            if (profile.model.includes('gemini'))
+            if (profile.model.includes('openrouter/'))
+                profile.api = 'openrouter'; // must do first because shares names with other models
+            else if (profile.model.includes('ollama/'))
+                profile.api = 'ollama'; // also must do early because shares names with other models
+            else if (profile.model.includes('gemini'))
                 profile.api = 'google';
-            else if (profile.model.includes('openrouter/'))
-                profile.api = 'openrouter'; // must do before others bc shares model names
             else if (profile.model.includes('gpt') || profile.model.includes('o1')|| profile.model.includes('o3'))
                 profile.api = 'openai';
             else if (profile.model.includes('claude'))
@@ -142,6 +147,10 @@ export class Prompter {
                 model_profile.api = 'mistral';
             else if (profile.model.includes("groq/") || profile.model.includes("groqcloud/"))
                 profile.api = 'groq';
+            else if (profile.model.includes("glhf/"))
+                profile.api = 'glhf';
+            else if (profile.model.includes("hyperbolic/"))
+                profile.api = 'hyperbolic';
             else if (profile.model.includes('novita/'))
                 profile.api = 'novita';
             else if (profile.model.includes('qwen'))
@@ -150,14 +159,13 @@ export class Prompter {
                 profile.api = 'xai';
             else if (profile.model.includes('deepseek'))
                 profile.api = 'deepseek';
-            else if (profile.model.includes('llama3'))
-                profile.api = 'ollama';
+	          else if (profile.model.includes('mistral'))
+                profile.api = 'mistral';
             else 
                 throw new Error('Unknown model:', profile.model);
         }
         return profile;
     }
-
     _createModel(profile) {
         let model = null;
         if (profile.api === 'google')
@@ -169,13 +177,17 @@ export class Prompter {
         else if (profile.api === 'replicate')
             model = new ReplicateAPI(profile.model.replace('replicate/', ''), profile.url, profile.params);
         else if (profile.api === 'ollama')
-            model = new Local(profile.model, profile.url, profile.params);
+            model = new Local(profile.model.replace('ollama/', ''), profile.url, profile.params);
         else if (profile.api === 'mistral')
             model = new Mistral(profile.model, profile.url, profile.params);
         else if (profile.api === 'groq')
             model = new GroqCloudAPI(profile.model.replace('groq/', '').replace('groqcloud/', ''), profile.url, profile.params);
         else if (profile.api === 'huggingface')
             model = new HuggingFace(profile.model, profile.url, profile.params);
+        else if (profile.api === 'glhf')
+            model = new GLHF(profile.model.replace('glhf/', ''), profile.url, profile.params);
+        else if (profile.api === 'hyperbolic')
+            model = new Hyperbolic(profile.model.replace('hyperbolic/', ''), profile.url, profile.params);
         else if (profile.api === 'novita')
             model = new Novita(profile.model.replace('novita/', ''), profile.url, profile.params);
         else if (profile.api === 'qwen')
@@ -190,7 +202,6 @@ export class Prompter {
             throw new Error('Unknown API:', profile.api);
         return model;
     }
-
     getName() {
         return this.profile.name;
     }
@@ -216,7 +227,7 @@ export class Prompter {
                 throw error;
             });
 
-            console.log('Examples initialized.');
+            logger.debug('Examples initialized.');
         } catch (error) {
             console.error('Failed to initialize examples:', error);
             console.error('Stack trace:', error.stack);
@@ -250,18 +261,10 @@ export class Prompter {
                 await this.skill_libary.getRelevantSkillDocs(code_task_content, settings.relevant_docs_count)
             );
         }
-            prompt = prompt.replaceAll('$COMMAND_DOCS', getCommandDocs());
-        if (prompt.includes('$CODE_DOCS'))
-            prompt = prompt.replaceAll('$CODE_DOCS', getSkillDocs());
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
-        if (prompt.includes('$LONG_TERM_MEMORY') && messages && messages.length > 0) {
-            const lastMessage = messages[messages.length - 1];
-            const relevantMemories = await this.retrieveRelevantMemories(lastMessage.content, 3);
-            prompt = prompt.replaceAll('$LONG_TERM_MEMORY', relevantMemories);
-        }
         if (prompt.includes('$TO_SUMMARIZE'))
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
         if (prompt.includes('$CONVO'))
@@ -290,10 +293,6 @@ export class Prompter {
                 prompt = prompt.replaceAll('$BLUEPRINTS', blueprints.slice(0, -2));
             }
         }
-        // Add support for $EXPERIENCE which is used in memory prompts
-        if (prompt.includes('$EXPERIENCE') && to_summarize && to_summarize.length > 0) {
-            prompt = prompt.replaceAll('$EXPERIENCE', stringifyTurns(to_summarize));
-        }
 
         // check if there are any remaining placeholders with syntax $<word>
         let remaining = prompt.match(/\$[A-Z_]+/g);
@@ -311,30 +310,88 @@ export class Prompter {
         this.last_prompt_time = Date.now();
     }
 
+    generatingPrompt = false;
+
     async promptConvo(messages) {
         this.most_recent_msg_time = Date.now();
         let current_msg_time = this.most_recent_msg_time;
-        for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
-            await this.checkCooldown();
-            if (current_msg_time !== this.most_recent_msg_time) {
-                return '';
+        logger.debug('Prompting conversation...');
+        this.generatingPrompt = true;
+        logger.debug('set generatingPrompt to true');
+        const checkInterrupt = () => this.agent.bot.interrupt_code || this.agent.shut_up;
+        try {
+            for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
+                if (checkInterrupt()) break;
+                logger.debug('try', i + 1, 'of 3');
+                await this.checkCooldown();
+                if (current_msg_time !== this.most_recent_msg_time) {
+                    return '';
+                }
+                logger.debug('checked cooldown');
+                let addIgnorePrompt = `
+                Response rules: 
+                1) You are in a realistic world. If you pick a fight and die, you die forever. Fear for your life.
+                2) Understand your given name. You must decide using provided context and human interaction rules whether someone is talking to you or not.
+                - You're being addressed (and MUST NOT respond with !ignore) if a user:
+                - Mentions you by name or nickname directly
+                - OR refers to "everyone," "everybody" or ANY collective term
+                - OR refers to "anyone near me" or "those around me" or similar proximity-based references
+                - OR continues a conversation where you were previously addressed
+                - IMPORTANT: ANY message directed at multiple entities automatically includes you unless explicitly stated otherwise
+                - If and ONLY if you are absolutely certain you are not being addressed (directly or indirectly), respond with !ignore and briefly explain why
+                3) You only get one response to this context. You can respond to multiple people in this message if they are talking to you and if you have not already replied to them. If !ignore is in your response, your entire message will be discarded and not heard by anyone.
+                - Therefore, you may not use !ignore if there's any possibility the message includes you.
+                `;
+                let prompt = addIgnorePrompt + '\n' + this.profile.conversing;
+                logger.debug('set prompt to profile.conversing');
+                prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+                logger.debug('replaced strings');
+                let generation = '';
+                // API request with retries for network errors
+                logger.debug('combined prompt');
+                let nowTime = new Date().getTime();
+                logger.debug('starting API request');
+                for (let retryCount = 0; retryCount < 3; retryCount++) {
+                    try {
+                        if (checkInterrupt()) break;
+                        logger.debug('starting API request retry', retryCount + 1);
+                        // logger.debug('prompt:', prompt);
+                        // logger.debug('messages:', messages);
+                        generation = await this.chat_model.sendRequest(messages, prompt);
+                        logger.debug('API request retry', retryCount + 1, 'succeeded');
+                        break; // success
+                    } catch (apiError) {
+                        logger.warn(`API connection error (${apiError}), retry ${retryCount+1}/3`);
+                        // Wait before retry (exponential backoff)
+                        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+                        // Last retry failed
+                        if (retryCount === 2) throw apiError;
+                        if (checkInterrupt()) break;
+                    }
+                }
+                // Print how long the generation took
+                logger.info(`Generation took ${((new Date().getTime() - new Date(nowTime).getTime()) / 1000).toFixed(2)}s`);
+                // in conversations >2 players LLMs tend to hallucinate and role-play as other bots
+                // the FROM OTHER BOT tag should never be generated by the LLM
+                if (generation.includes('(FROM OTHER BOT)')) {
+                    logger.warn('LLM hallucinated message as another bot. Trying again...');
+                    continue;
+                }
+                // if (current_msg_time !== this.most_recent_msg_time) {
+                //     console.warn(this.agent.name + ' received new message while generating, discarding old response.');
+                //     return '';
+                // }
+                logger.debug('returning generation');
+                return generation;
             }
-            let prompt = this.profile.conversing;
-            prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
-            let generation = await this.chat_model.sendRequest(messages, prompt);
-            // in conversations >2 players LLMs tend to hallucinate and role-play as other bots
-            // the FROM OTHER BOT tag should never be generated by the LLM
-            if (generation.includes('(FROM OTHER BOT)')) {
-                console.warn('LLM hallucinated message as another bot. Trying again...');
-                continue;
-            }
-            if (current_msg_time !== this.most_recent_msg_time) {
-                console.warn(this.agent.name + ' received new message while generating, discarding old response.');
-                return '';
-            }
-            return generation;
+            return ''; // failed
+        } catch (outerError) {
+            console.error('[promptConvo] Outer error:', outerError);
+            return '';
+        } finally {
+            logger.debug('finally block #2, setting generatingPrompt to false');
+            this.generatingPrompt = false;
         }
-        return '';
     }
 
     async promptCoding(messages) {
@@ -368,6 +425,13 @@ export class Prompter {
         return res.trim().toLowerCase() === 'respond';
     }
 
+    async promptVision(messages, imageBuffer) {
+        await this.checkCooldown();
+        let prompt = this.profile.image_analysis;
+        prompt = await this.replaceStrings(prompt, messages, null, null, null);
+        return await this.vision_model.sendVisionRequest(messages, prompt, imageBuffer);
+    }
+
     async promptGoalSetting(messages, last_goals) {
         let system_message = this.profile.goal_setting;
         system_message = await this.replaceStrings(system_message, messages);
@@ -384,232 +448,13 @@ export class Prompter {
             let data = res.split('```')[1].replace('json', '').trim();
             goal = JSON.parse(data);
         } catch (err) {
-            console.log('Failed to parse goal:', res, err);
+            logger.debug('Failed to parse goal:', res, err);
         }
         if (!goal || !goal.name || !goal.quantity || isNaN(parseInt(goal.quantity))) {
-            console.log('Failed to set goal:', res);
+            logger.debug('Failed to set goal:', res);
             return null;
         }
         goal.quantity = parseInt(goal.quantity);
         return goal;
-    }
-
-    // Initialize vector database for long-term memory
-    async initVectorMemory() {
-        try {
-            // Default Qdrant settings - can be overridden in profile
-            const qdrantConfig = this.profile.vectorDb || {
-                url: 'http://localhost:6333',
-                collectionName: `${this.agent.name}_memories`,
-                vectorSize: 1536  // Default for many embedding models
-            };
-            
-            console.log('Initializing vector memory with config:', JSON.stringify(qdrantConfig, null, 2));
-            
-            // Initialize Qdrant client
-            this.vectorClient = new QdrantClient({ 
-                url: qdrantConfig.url 
-            });
-            
-            this.collectionName = qdrantConfig.collectionName;
-            const vectorSize = qdrantConfig.vectorSize;
-            
-            // Check if collection exists, create if it doesn't
-            try {
-                await this.vectorClient.getCollection(this.collectionName);
-                console.log(`Vector memory collection "${this.collectionName}" already exists.`);
-            } catch (error) {
-                // Collection doesn't exist, create it
-                console.log(`Creating vector memory collection "${this.collectionName}" with dimension ${vectorSize}`);
-                await this.vectorClient.createCollection(this.collectionName, {
-                    vectors: {
-                        size: vectorSize,
-                        distance: 'Cosine'
-                    }
-                });
-                console.log(`Created vector memory collection "${this.collectionName}"`);
-            }
-            
-            console.log("Vector database initialized successfully.");
-        } catch (error) {
-            console.error('Failed to initialize vector memory:', error);
-            this.vectorClient = null;
-        }
-    }
-    
-    // Get embedding for text using the configured embedding model
-    async getEmbedding(text) {
-        if (!this.embedding_model) {
-            console.warn('No embedding model available');
-            return null;
-        }
-        
-        try {
-            // Using the embed method that exists in the model implementations
-            return await this.embedding_model.embed(text);
-        } catch (error) {
-            console.error('Error generating embedding:', error);
-            return null;
-        }
-    }
-    
-    // Store a new memory in the vector database
-    async storeMemory(text, metadata = {}) {
-        if (!this.vectorClient || !this.embedding_model) {
-            console.warn('Cannot store memory: Vector client or embedding model not available');
-            return false;
-        }
-        
-        try {
-            console.log(`Attempting to store memory: "${text.substring(0, 100)}..."`);
-            
-            // Generate embedding for the memory text
-            console.log('Generating embedding...');
-            const embedding = await this.getEmbedding(text);
-            if (!embedding || embedding.length === 0) {
-                console.warn('Failed to generate embedding for memory');
-                return false;
-            }
-            console.log(`Generated embedding (${embedding.length} dimensions)`);
-            
-            // Generate a unique ID (numeric timestamp instead of string)
-            const id = Date.now();
-            
-            // Store memory with metadata
-            console.log(`Storing to collection: ${this.collectionName}`);
-            await this.vectorClient.upsert(this.collectionName, {
-                points: [{
-                    id: id,
-                    vector: embedding,
-                    payload: {
-                        text: text,
-                        timestamp: new Date().toISOString(),
-                        ...metadata
-                    }
-                }]
-            });
-            
-            console.log(`✅ Successfully stored memory: "${text.substring(0, 50)}..."`);
-            return true;
-        } catch (error) {
-            console.error('Error storing memory:', error);
-            return false;
-        }
-    }
-
-    // Retrieve memories relevant to a query
-    async retrieveRelevantMemories(query, limit = 5) {
-        if (!this.vectorClient || !this.embedding_model) {
-            console.warn('Cannot retrieve memories: Vector client or embedding model not available');
-            return "No long-term memories available.";
-        }
-        
-        try {
-            console.log(`Retrieving memories relevant to: "${query.substring(0, 100)}..."`);
-            
-            // Generate embedding for the query
-            console.log('Generating query embedding...');
-            const queryEmbedding = await this.getEmbedding(query);
-            if (!queryEmbedding || queryEmbedding.length === 0) {
-                console.warn('Failed to generate embedding for query');
-                return "No long-term memories available.";
-            }
-            console.log(`Generated query embedding (${queryEmbedding.length} dimensions)`);
-            
-            // Search for similar memories
-            console.log(`Searching collection "${this.collectionName}" for ${limit} relevant memories...`);
-            const searchResults = await this.vectorClient.search(this.collectionName, {
-                vector: queryEmbedding,
-                limit: limit,
-                with_payload: true,
-                with_vectors: false
-            });
-            
-            console.log(`Found ${searchResults?.length || 0} memories`);
-            
-            if (!searchResults || searchResults.length === 0) {
-                return "No relevant long-term memories found.";
-            }
-            
-            // Format the results
-            let formattedResults = "Relevant long-term memories:\n\n";
-            
-            searchResults.forEach((result, index) => {
-                const memory = result.payload.text;
-                const timestamp = new Date(result.payload.timestamp).toLocaleString();
-                const score = result.score.toFixed(2);
-                
-                console.log(`Memory ${index + 1}: Score: ${score}, Text: "${memory.substring(0, 50)}..."`);
-                
-                formattedResults += `Memory ${index + 1} (relevance: ${score}):\n${memory}\n`;
-                formattedResults += `Timestamp: ${timestamp}\n\n`;
-            });
-            
-            return formattedResults;
-        } catch (error) {
-            console.error('Error retrieving memories:', error);
-            return "Error retrieving long-term memories.";
-        }
-    }
-    
-    // Store important interaction as memory
-    async promptMemoryStorage(message, importance = "medium") {
-        if (!this.vectorClient || !this.embedding_model) {
-            console.warn('Cannot prompt memory storage: Vector client or embedding model not available');
-            return;
-        }
-        
-        console.log(`Processing message for memory storage (importance: ${importance}): "${message.substring(0, 100)}..."`);
-        
-        await this.checkCooldown();
-        let prompt = this.profile.memory_storage || 
-            `You are assisting an AI agent named $NAME by processing its experiences into memories.
-            
-            When processing an experience, you should:
-            1. Extract the key information that would be useful to remember
-            2. Summarize it concisely (max 1-2 sentences)
-            3. Format it in third person from the agent's perspective
-            
-            The agent's most recent experience is:
-            """
-            $EXPERIENCE
-            """
-            
-            Generate a concise third-person memory that captures the essential information. 
-            Don't explain your reasoning, just provide the memory directly.`;
-        
-        // Save the message content to be used by replaceStrings when it encounters $EXPERIENCE
-        let experienceContent = [{role: 'user', content: message}];
-        
-        // Apply all replacements through the central replacement method
-        prompt = await this.replaceStrings(prompt, experienceContent, null, experienceContent);
-        
-        // At this point, if $EXPERIENCE wasn't replaced properly (due to different format than expected)
-        // or if profile uses $MESSAGE instead, manually replace remaining placeholders
-        if (prompt.includes('$EXPERIENCE')) {
-            prompt = prompt.replace(/\$EXPERIENCE/g, message);
-        }
-        if (prompt.includes('$MESSAGE')) {
-            prompt = prompt.replace(/\$MESSAGE/g, message);
-        }
-        
-        console.log('Sending memory prompt for processing...');
-        const memoryText = await this.chat_model.sendRequest([], prompt);
-        
-        if (memoryText && memoryText.trim()) {
-            console.log(`Generated memory text: "${memoryText.trim()}"`);
-            const success = await this.storeMemory(memoryText.trim(), {
-                importance: importance,
-                source: "conversation"
-            });
-            
-            if (success) {
-                console.log('💾 Memory successfully stored in vector database');
-            } else {
-                console.warn('Failed to store memory in vector database');
-            }
-        } else {
-            console.warn('Generated empty memory text, nothing to store');
-        }
     }
 }

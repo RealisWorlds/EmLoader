@@ -2,7 +2,7 @@ import * as skills from '../library/skills.js';
 import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
 import { itemSatisfied } from './utils.js';
-
+import { logger } from '../../utils/logger.js';
 
 const blacklist = [
     'coal_block',
@@ -308,7 +308,7 @@ export class ItemGoal {
         // Get next goal to execute
         let next_info = this.goal.getNext(item_quantity);
         if (!next_info) {
-            console.log(`Invalid item goal ${this.goal.name}`);
+            logger.debug(`Invalid item goal ${this.goal.name}`);
             return false;
         }
         let next = next_info.node;
@@ -346,9 +346,9 @@ export class ItemGoal {
 
         // Log the result of the goal attempt
         if (final_quantity > init_quantity) {
-            console.log(`Successfully obtained ${next.name} for goal ${this.goal.name}`);
+            logger.debug(`Successfully obtained ${next.name} for goal ${this.goal.name}`);
         } else {
-            console.log(`Failed to obtain ${next.name} for goal ${this.goal.name}`);
+            logger.debug(`Failed to obtain ${next.name} for goal ${this.goal.name}`);
         }
         return final_quantity > init_quantity;
     }

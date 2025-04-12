@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { mainProxy } from './main_proxy.js';
+import { logger } from '../utils/logger.js';
 
 export class AgentProcess {
     start(profile, load_memory=false, init_message=null, count_id=0, task_path=null, task_id=null) {
@@ -26,13 +27,14 @@ export class AgentProcess {
         
         let last_restart = Date.now();
         agentProcess.on('exit', (code, signal) => {
-            console.log(`Agent process exited with code ${code} and signal ${signal}`);
+            logger.debug(`Agent process exited with code ${code} and signal ${signal}`);
             this.running = false;
             mainProxy.logoutAgent(this.name);
             
-            if (code > 1) {
-                console.log(`Ending task`);
-                process.exit(code);
+            if (code >= 0) {
+                logger.debug(`Ending task`);
+                // process.exit(code);
+                this.start(profile, true, 'Agent process restarted.', count_id, task_path, task_id);
             }
 
             if (code !== 0 && signal !== 'SIGINT') {
@@ -41,7 +43,7 @@ export class AgentProcess {
                     console.error(`Agent process ${profile} exited too quickly and will not be restarted.`);
                     return;
                 }
-                console.log('Restarting agent...');
+                logger.debug('Restarting agent...');
                 this.start(profile, true, 'Agent process restarted.', count_id, task_path, task_id);
                 last_restart = Date.now();
             }

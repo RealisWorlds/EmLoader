@@ -1,5 +1,6 @@
 import { Agent } from '../agent/agent.js';
 import yargs from 'yargs';
+import { logger } from '../utils/logger.js';
 
 // Add global unhandled rejection handler
 process.on('unhandledRejection', (reason, promise) => {
@@ -13,7 +14,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const args = process.argv.slice(2);
 if (args.length < 1) {
-    console.log('Usage: node init_agent.js <agent_name> [profile] [load_memory] [init_message]');
+    logger.debug('Usage: node init_agent.js <agent_name> [profile] [load_memory] [init_message]');
     process.exit(1);
 }
 
@@ -53,7 +54,7 @@ const argv = yargs(args)
 // Wrap agent start in async IIFE with proper error handling
 (async () => {
     try {
-        console.log('Starting agent with profile:', argv.profile);
+        logger.debug('Starting agent with profile:', argv.profile);
         const agent = new Agent();
         await agent.start(argv.profile, argv.load_memory, argv.init_message, argv.count_id, argv.task_path, argv.task_id);
     } catch (error) {

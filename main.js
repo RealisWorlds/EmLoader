@@ -121,7 +121,6 @@ async function main() {
     } else {
         console.log('Not hosting mindserver in this instance.');
     }
-    
     mainProxy.connect();
 
     const profiles = getProfiles(args);

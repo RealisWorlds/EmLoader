@@ -382,15 +382,11 @@ export function getBiomeName(bot) {
      * @example
      * let biome = world.getBiomeName(bot);
      **/
-    try {
-        const biomeId = bot.world.getBiome(bot.entity.position);
-        const biomes = mc.getAllBiomes();
-        if (!biomes || !biomes[biomeId]) {
-            return 'unknown';
-        }
-        return biomes[biomeId].name;
-    } catch (error) {
-        console.error('Error getting biome name:', error);
-        return 'unknown';
+	try {
+	    const biomeId = bot.world.getBiome(bot.entity.position);
+	    return mc.getAllBiomes()[biomeId].name;
+    } catch (err) {
+        log(bot, `Failed to get biome name: ${err.message}`);
+        return false;
     }
 }

@@ -3,6 +3,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { logger } from '../utils/logger.js';
 
 // Module-level variables
 let io;
@@ -24,12 +25,12 @@ export function createMindServer(port = 8080) {
     // Socket.io connection handling
     io.on('connection', (socket) => {
         let curAgentName = null;
-        console.log('Client connected');
+        logger.debug('Client connected');
 
         agentsUpdate(socket);
 
         socket.on('register-agents', (agentNames) => {
-            console.log(`Registering agents: ${agentNames}`);
+            logger.debug(`Registering agents: ${agentNames}`);
             agentNames.forEach(name => registeredAgents.add(name));
             for (let name of agentNames) {
                 agentManagers[name] = socket;
@@ -60,7 +61,7 @@ export function createMindServer(port = 8080) {
         });
 
         socket.on('disconnect', () => {
-            console.log('Client disconnected');
+            logger.debug('Client disconnected');
             if (inGameAgents[curAgentName]) {
                 delete inGameAgents[curAgentName];
                 agentsUpdate();
@@ -72,12 +73,12 @@ export function createMindServer(port = 8080) {
                 console.warn(`Agent ${agentName} tried to send a message but is not logged in`);
                 return;
             }
-            console.log(`${curAgentName} sending message to ${agentName}: ${json.message}`);
+            logger.debug(`${curAgentName} sending message to ${agentName}: ${json.message}`);
             inGameAgents[agentName].emit('chat-message', curAgentName, json);
         });
 
         socket.on('restart-agent', (agentName) => {
-            console.log(`Restarting agent: ${agentName}`);
+            logger.debug(`Restarting agent: ${agentName}`);
             inGameAgents[agentName].emit('restart-agent');
         });
 
@@ -102,12 +103,12 @@ export function createMindServer(port = 8080) {
         });
 
         socket.on('stop-all-agents', () => {
-            console.log('Killing all agents');
+            logger.debug('Killing all agents');
             stopAllAgents();
         });
 
         socket.on('shutdown', () => {
-            console.log('Shutting down');
+            logger.debug('Shutting down');
             for (let manager of Object.values(agentManagers)) {
                 manager.emit('shutdown');
             }
@@ -122,7 +123,7 @@ export function createMindServer(port = 8080) {
 				return
 			}
 			try {
-				console.log(`Sending message to agent ${agentName}: ${message}`);
+				logger.debug(`Sending message to agent ${agentName}: ${message}`);
 				inGameAgents[agentName].emit('send-message', agentName, message)
 			} catch (error) {
 				console.error('Error: ', error);
@@ -131,7 +132,7 @@ export function createMindServer(port = 8080) {
     });
 
     server.listen(port, 'localhost', () => {
-        console.log(`MindServer running on port ${port}`);
+        logger.debug(`MindServer running on port ${port}`);
     });
 
     return server;

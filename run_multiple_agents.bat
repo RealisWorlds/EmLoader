@@ -1,8 +1,43 @@
 @echo off
 REM Launch multiple agent instances with different profiles
-start cmd /k "node main.js --profiles ./profiles/BobVilaAI.json"
-timeout /t 2
-start cmd /k "node main.js --profiles ./profiles/Sam.json"
-timeout /t 2
-start cmd /k "node main.js --profiles ./profiles/Omniscientius.json"
+start /MIN cmd /k "node main.js --profiles ./profiles/Clyyde.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/AceLove.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Omniscientius.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Becky.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Bella.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/BrotherMalachai.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/bumblesMcGee.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/GraysonThorne.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/JerryJohnson.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Kai.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/NervousNed.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Raven.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Sammy.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Sebastianleaf.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Sunny.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/ThorneBlackheart.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/VerityVeil.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Elon.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/SleepyJoe.json"
+timeout /t 5
+start /MIN cmd /k "node main.js --profiles ./profiles/Sam.json"
+timeout /t 5
 echo Started multiple agent instances

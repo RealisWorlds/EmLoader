@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { executeCommand } from './commands/index.js';
 import { getPosition } from './library/world.js'
 import settings from '../../settings.js';
-
+import { logger } from '../utils/logger.js';
 
 export class TaskValidator {
     constructor(data, agent) {
@@ -21,12 +21,12 @@ export class TaskValidator {
                 }
                 if (slot && slot.name.toLowerCase() === this.target && slot.count >= this.number_of_target) {
                     valid = true;
-                    console.log('Task is complete');
+                    logger.debug('Task is complete');
                 }
             });
             if (total_targets >= this.number_of_target) {
                 valid = true;
-                console.log('Task is complete');
+                logger.debug('Task is complete');
             }
             return valid;
         } catch (error) {
@@ -87,7 +87,7 @@ export class Task {
         if (this.taskTimeout) {
             const elapsedTime = (Date.now() - this.taskStartTime) / 1000;
             if (elapsedTime >= this.taskTimeout) {
-                console.log('Task timeout reached. Task unsuccessful.');
+                logger.debug('Task timeout reached. Task unsuccessful.');
                 return {"message": 'Task timeout reached', "code": 4};
             }
         }
@@ -101,7 +101,7 @@ export class Task {
         let name = this.agent.name;
 
         bot.chat(`/clear ${name}`);
-        console.log(`Cleared ${name}'s inventory.`);
+        logger.debug(`Cleared ${name}'s inventory.`);
 
         //kill all drops
         if (this.agent.count_id === 0) {
@@ -112,22 +112,22 @@ export class Task {
         let initial_inventory = null;
         if (this.data.agent_count > 1) {
             initial_inventory = this.data.initial_inventory[this.agent.count_id.toString()];
-            console.log("Initial inventory:", initial_inventory);
+            logger.debug("Initial inventory:", initial_inventory);
         } else if (this.data) {
-            console.log("Initial inventory:", this.data.initial_inventory);
+            logger.debug("Initial inventory:", this.data.initial_inventory);
             initial_inventory = this.data.initial_inventory;
         }
     
         if ("initial_inventory" in this.data) {
-            console.log("Setting inventory...");
-            console.log("Inventory to set:", initial_inventory);
+            logger.debug("Setting inventory...");
+            logger.debug("Inventory to set:", initial_inventory);
             for (let key of Object.keys(initial_inventory)) {
-                console.log('Giving item:', key);
+                logger.debug('Giving item:', key);
                 bot.chat(`/give ${name} ${key} ${initial_inventory[key]}`);
             };
             //wait for a bit so inventory is set
             await new Promise((resolve) => setTimeout(resolve, 500));
-            console.log("Done giving inventory items.");
+            logger.debug("Done giving inventory items.");
         }
         // Function to generate random numbers
     
@@ -142,7 +142,7 @@ export class Task {
         for (const playerName in bot.players) {
             const player = bot.players[playerName];
             if (!available_agents.some((n) => n === playerName)) {
-                console.log('Found human player:', player.username);
+                logger.debug('Found human player:', player.username);
                 human_player_name = player.username
                 break;
             }
@@ -153,7 +153,7 @@ export class Task {
         // teleport near a human player if found by default
     
         if (human_player_name) {
-            console.log(`Teleporting ${name} to human ${human_player_name}`)
+            logger.debug(`Teleporting ${name} to human ${human_player_name}`)
             bot.chat(`/tp ${name} ${human_player_name}`) // teleport on top of the human player
     
         }
@@ -181,7 +181,7 @@ export class Task {
             // TODO wait for other bots to join
             await new Promise((resolve) => setTimeout(resolve, 10000));
             if (available_agents.length < this.data.agent_count) {
-                console.log(`Missing ${this.data.agent_count - available_agents.length} bot(s).`);
+                logger.debug(`Missing ${this.data.agent_count - available_agents.length} bot(s).`);
                 this.agent.killAll();
             }
         }

@@ -1,4 +1,5 @@
 import { ActionStateManager } from './action_state_manager.js';
+import { logger } from '../utils/logger.js';
 
 export class ActionManager {
     constructor(agent) {
@@ -16,6 +17,9 @@ export class ActionManager {
     }
 
     async runAction(actionLabel, actionFn, { timeout, resume = false } = {}) {
+    	// acdxz todo: check if already paused
+        this.agent.bot.modes.pause('unstuck');
+        this.agent.bot.modes.pause('elbow_room');
         if (resume) {
             return this._executeResume(actionLabel, actionFn, timeout);
         } else {
@@ -30,7 +34,7 @@ export class ActionManager {
         }, 10000);
         while (this.executing) {
             this.agent.requestInterrupt();
-            console.log('waiting for code to finish executing...');
+            logger.debug('waiting for code to finish executing...');
             await new Promise(resolve => setTimeout(resolve, 300));
         }
         clearTimeout(timeout);
@@ -50,7 +54,7 @@ export class ActionManager {
         }
         if (this.resume_func != null && (this.agent.isIdle() || new_resume) && (!this.agent.self_prompter.isActive() || new_resume)) {
             this.currentActionLabel = this.resume_name;
-            let res = await this._executeAction(this.resume_name, this.resume_func, timeout);
+            let res = await this._executeAction(this.resume_name, this.resume_func, timeout, true);
             this.currentActionLabel = '';
             return res;
         } else {
@@ -58,15 +62,15 @@ export class ActionManager {
         }
     }
 
-    async _executeAction(actionLabel, actionFn, timeout = 10) {
+    async _executeAction(actionLabel, actionFn, timeout = 10, resume = false) {
         let TIMEOUT;
         try {
-            console.log('executing code...\n');
+            logger.debug('executing code...\n');
 
             // await current action to finish (executing=false), with 10 seconds timeout
             // also tell agent.bot to stop various actions
             if (this.executing) {
-                console.log(`action "${actionLabel}" trying to interrupt current action "${this.currentActionLabel}"`);
+                logger.debug(`action "${actionLabel}" trying to interrupt current action "${this.currentActionLabel}"`);
             }
             await this.stop();
 
@@ -85,11 +89,12 @@ export class ActionManager {
             // save the action for resume
             try {
                 // we are only saving newActions
-                if (this.currentActionLabel.startsWith('newAction:')) {
+                logger.debug('action label: ' + this.currentActionLabel);
+                if (this.currentActionLabel.startsWith('action:newAction:')) {
                     if (!this.actionStateManager) {
                         this.actionStateManager = new ActionStateManager(this.agent);
                     }
-                    console.log('Auto-saving execution state');
+                    logger.debug('Auto-saving execution state');
                     const state = {
                         actionName: actionLabel || 'GenericActionLabel',
                         position: {
@@ -97,33 +102,35 @@ export class ActionManager {
                             y: this.agent.bot.entity.position.y,
                             z: this.agent.bot.entity.position.z
                         },
-                        codeFilePath: this.agent.bot.codeFilePath,
+                        // codeFilePath: this.agent.bot.codeFilePath,
+                        codeFilePath: this.agent.coder.fp + this.agent.coder.file_counter + '.js',
                         actionHash: this.actionStateManager.createActionHash(actionLabel)
                     };
-                    console.log(state);
+                    logger.debug(state);
                     await this.actionStateManager.saveActionState(actionLabel, state);
-                    console.log('Auto-saved execution state');
+                    logger.debug('Auto-saved execution state');
                 }
             } catch (error) {
                 console.error('Error auto-saving interrupt state:', error);
-                console.log(error.stack);
+                logger.debug(error.stack);
                 throw error;
             }
-
-            // this stops a continuous run -> idle -> run loop.
-            this.agent.actions.resume_func = null;
-
             // start the action
-            await actionFn(this.agent.bot);
-
+            let output = null;
+            if (actionFn.toString().includes('(bot)') || actionFn.toString().includes('(bot,')) {
+                output = await actionFn(this.agent.bot);
+            } else {
+                output = await actionFn();
+            }
             // mark action as finished + cleanup
             this.executing = false;
             this.currentActionLabel = '';
             this.currentActionFn = null;
             clearTimeout(TIMEOUT);
+            if (resume) this.cancelResume();
 
             // get bot activity summary
-            let output = this._getBotOutputSummary();
+            output = this.getBotOutputSummary() || output;
             let interrupted = this.agent.bot.interrupt_code;
             let timedout = this.timedout;
             this.agent.clearBotLogs();
@@ -147,7 +154,7 @@ export class ActionManager {
             await this.stop();
             err = err.toString();
 
-            let message = this._getBotOutputSummary() +
+            let message = this.getBotOutputSummary() +
                 '!!Code threw exception!!\n' +
                 'Error: ' + err + '\n' +
                 'Stack trace:\n' + err.stack+'\n';
@@ -161,18 +168,19 @@ export class ActionManager {
         }
     }
 
-    _getBotOutputSummary() {
+    getBotOutputSummary() {
         const { bot } = this.agent;
         if (bot.interrupt_code && !this.timedout) return '';
         let output = bot.output;
         const MAX_OUT = 500;
         if (output.length > MAX_OUT) {
-            output = `Code output is very long (${output.length} chars) and has been shortened.\n
+            output = `Action output is very long (${output.length} chars) and has been shortened.\n
           First outputs:\n${output.substring(0, MAX_OUT / 2)}\n...skipping many lines.\nFinal outputs:\n ${output.substring(output.length - MAX_OUT / 2)}`;
         }
         else {
-            output = 'Code output:\n' + output.toString();
+            output = 'Action output:\n' + output.toString();
         }
+        bot.output = '';
         return output;
     }
 
