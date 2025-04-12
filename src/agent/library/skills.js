@@ -36,15 +36,14 @@ class DesignAwareMovements extends pf.Movements {
 		// First check if this specific block is protected
 		// const isProtected = this.protectedBlocks.has(this.bot.blockAt(block.position));
 		
-		// If you need more complex checking:
-		// const isProtected = Array.from(this.protectedBlocks).some(
-		// 	protectedBlock => 
-		// 		Math.round(protectedBlock.position.x*2)/2 === Math.round(block.position.x*2)/2 && 
-		// 		Math.round(protectedBlock.position.y*2)/2 === Math.round(block.position.y*2)/2 && 
-		// 		Math.round(protectedBlock.position.z*2)/2 === Math.round(block.position.z*2)/2 &&
-		// 		protectedBlock.name === block.name
-		// );
-		// if (isProtected) return false;
+		const isProtected = Array.from(this.protectedBlocks).some(
+			protectedBlock => 
+				Math.round(protectedBlock.position.x*2)/2 === Math.round(block.position.x*2)/2 && 
+				Math.round(protectedBlock.position.y*2)/2 === Math.round(block.position.y*2)/2 && 
+				Math.round(protectedBlock.position.z*2)/2 === Math.round(block.position.z*2)/2 &&
+				protectedBlock.name === block.name
+		);
+		if (isProtected) return false;
 		// Otherwise use the original logic
 		return super.safeToBreak(block);
     }
@@ -52,19 +51,13 @@ class DesignAwareMovements extends pf.Movements {
 
 function getDesignAwareMovements(bot) {
     let movements = new DesignAwareMovements(bot);
-    // movements.allow1by1towers = true; // UNCOMMENT this line
-    // movements.placeCost = 0;
-    // movements.canDig = false;
-    // movements.dontMineUnderFallingBlock = true;
-    // movements.scafoldingBlocks = ['dirt', 'cobblestone'];
-    // movements.canPlace = true; // UNCOMMENT this line
 
-    // // Add protected blocks
-    // if (bot.blockList && Array.isArray(bot.blockList)) {
-    //     bot.blockList.forEach(block => {
-    //         movements.protectedBlocks.add(block);
-    //     });
-    // }
+    // Add protected blocks
+    if (bot.blockList && Array.isArray(bot.blockList)) {
+        bot.blockList.forEach(block => {
+            movements.protectedBlocks.add(block);
+        });
+    }
 
     return movements;
 }
