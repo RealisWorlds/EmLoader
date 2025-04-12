@@ -75,8 +75,7 @@ const modes_list = [
                 console.error('Error in self_preservation mode:', error);
                 if (bot.interrupt_code) {
                     log(bot, `Interrupted while self preserving.`);
-                    // clear interrupt
-                    bot.interrupt_code = false;
+                    return false;
                 }
             }
         }

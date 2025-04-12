@@ -8,23 +8,27 @@ async function gotoInterruptible(bot, goal, dynamic = false) {
 	const pathfinder = bot.pathfinder
   
 	// Start moving toward the goal
-	const gotoPromise = pathfinder.goto(goal, dynamic)
-  
-	// Also start a loop that periodically checks for your interrupt
-	const checkInterrupt = new Promise((_, reject) => {
-	  const interval = setInterval(() => {
-		if (bot.interrupt_code) {
-		  clearInterval(interval)
-		  pathfinder.stop() // forcibly halt pathfinding
-		  reject(new Error('Interrupted by user/program'))
-		}
-		// If pathfinder finishes or fails, we’ll rely on gotoPromise finishing
-	  }, 200) // Check every 200ms
-	})
-  
-	// Race them – if the interrupt fires first, we stop pathfinding
-	return Promise.race([gotoPromise, checkInterrupt])
-  }
+	try {
+		const gotoPromise = pathfinder.goto(goal, dynamic);
+		// Also start a loop that periodically checks for your interrupt
+		const checkInterrupt = new Promise((_, reject) => {
+		const interval = setInterval(() => {
+			if (bot.interrupt_code) {
+			clearInterval(interval)
+			pathfinder.stop() // forcibly halt pathfinding
+			reject(new Error('Interrupted by user/program'))
+			}
+			// If pathfinder finishes or fails, we’ll rely on gotoPromise finishing
+		}, 200) // Check every 200ms
+		})
+	
+		// Race them – if the interrupt fires first, we stop pathfinding
+		return Promise.race([gotoPromise, checkInterrupt])
+	} catch (error) {
+		log(bot, `Failed to move to ${goal}: ${error.message}`);
+		return false;
+	}
+}
 
 class DesignAwareMovements extends pf.Movements {
     constructor(bot) {
@@ -303,6 +307,7 @@ export async function smeltItem(bot, itemName, num=1) {
         let smelted_item = null;
         await new Promise(resolve => setTimeout(resolve, 200));
         while (total < num) {
+			if (checkInterrupt(bot)) return false;
             await new Promise(resolve => setTimeout(resolve, 10000));
             logger.debug('Checking...');
             let collected = false;
@@ -317,7 +322,6 @@ export async function smeltItem(bot, itemName, num=1) {
                 break; // if nothing was collected this time or last time
             }
             collected_last = collected;
-            if (checkInterrupt(bot)) break;
         }
         await bot.closeWindow(furnace);
 
@@ -598,6 +602,7 @@ export async function pickupNearbyItems(bot) {
 	    let nearestItem = getNearestItem(bot);
 	    let pickedUp = 0;
 	    while (nearestItem) {
+			if (checkInterrupt(bot)) return false;
 	        bot.pathfinder.setMovements(new pf.Movements(bot));
 	        await gotoInterruptible(bot, new pf.goals.GoalFollow(nearestItem, 0.8), true);
 	        await new Promise(resolve => setTimeout(resolve, 200));
@@ -1182,9 +1187,9 @@ export async function discard(bot, itemName, num=-1) {
      * await skills.discard(bot, "oak_log");
      **/
 		try {
-			if (checkInterrupt(bot)) return false;
 			let discarded = 0;
 			while (true) {
+				if (checkInterrupt(bot)) return false;
 				let item = bot.inventory.items().find(item => item.name === itemName);
 				if (!item) {
 					break;
@@ -1402,7 +1407,8 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
 	            }
 	        });
 	        let start = Date.now();
-	        while (!given && !checkInterrupt(bot)) {
+	        while (!given) {
+				if (checkInterrupt(bot)) return false;
 	            await new Promise(resolve => setTimeout(resolve, 500));
 	            if (given) {
 	                return true;
@@ -1596,7 +1602,8 @@ export async function followPlayer(bot, username, distance=4) {
 	    bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
 	    log(bot, `You are now actively following player ${username}.`);
 	
-	    while (!checkInterrupt(bot)) {
+	    while (true) {
+			if (checkInterrupt(bot)) return false;
 	        await new Promise(resolve => setTimeout(resolve, 500));
 	        // in cheat mode, if the distance is too far, teleport to the player
 	        if (bot.modes.isOn('cheat') && bot.entity.position.distanceTo(player.position) > 100 && player.isOnGround) {
@@ -1730,9 +1737,9 @@ export async function stay(bot, seconds=30) {
     bot.modes.pause('hunting');
     bot.modes.pause('torch_placing');
     bot.modes.pause('item_collecting');
-	if (checkInterrupt(bot)) return false;
     let start = Date.now();
-    while (!checkInterrupt(bot) && (seconds === -1 || Date.now() - start < seconds*1000)) {
+    while (seconds === -1 || Date.now() - start < seconds*1000) {
+		if (checkInterrupt(bot)) return false;
         await new Promise(resolve => setTimeout(resolve, 500));
     }
     log(bot, `Stayed for ${(Date.now() - start)/1000} seconds.`);
@@ -1772,6 +1779,7 @@ export async function useDoor(bot, door_pos=null) {
 	    bot.pathfinder.setGoal(new pf.goals.GoalNear(door_pos.x, door_pos.y, door_pos.z, 1));
 	    await new Promise((resolve) => setTimeout(resolve, 1000));
 	    while (bot.pathfinder.isMoving()) {
+			if (checkInterrupt(bot)) return false;
 	        await new Promise((resolve) => setTimeout(resolve, 100));
 	    }
 	    

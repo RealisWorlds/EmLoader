@@ -264,8 +264,6 @@ export class Coder {
             if (!bot || !bot.interrupt_code) { return false; }
             skills.wait(bot, 50);
             log(bot, "Interrupt found, code interrupted");
-            // Clear the interrupt code
-            bot.interrupt_code = false;
             ${clearDesign}
             return true;
         }`;
@@ -313,7 +311,7 @@ export class Coder {
         logger.debug(`Generated code: """${code}"""`);
 
         // this may cause problems in callback functions
-        code = code.replaceAll(';\n', '; if(bot.interrupt_code) {log(bot, "Code interrupted.");return;}\n');
+        // code = code.replaceAll(';\n', '; if(bot.interrupt_code) {log(bot, "Code interrupted.");return;}\n');
         for (let line of code.split('\n')) {
             src += `    ${line}\n`;
         }

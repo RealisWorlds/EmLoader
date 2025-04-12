@@ -30,14 +30,8 @@ export class AgentProcess {
             logger.debug(`Agent process exited with code ${code} and signal ${signal}`);
             this.running = false;
             mainProxy.logoutAgent(this.name);
-            
-            if (code >= 0) {
-                logger.debug(`Ending task`);
-                // process.exit(code);
-                this.start(profile, true, 'Agent process restarted.', count_id, task_path, task_id);
-            }
 
-            if (code !== 0 && signal !== 'SIGINT') {
+            if (code && signal !== 'SIGINT') {
                 // agent must run for at least 10 seconds before restarting
                 if (Date.now() - last_restart < 10000) {
                     console.error(`Agent process ${profile} exited too quickly and will not be restarted.`);

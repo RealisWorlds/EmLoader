@@ -601,7 +601,7 @@ export class Agent {
 
             return used_command;
         } catch (error) {
-            console.error('Error in _processMessage:', error);
+            console.error('Error in _processMessage:', error.message || error);
             return false;
         }
     }

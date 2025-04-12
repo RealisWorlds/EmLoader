@@ -380,13 +380,7 @@ export const actionsList = [
             'selfPrompt': { type: 'string', description: 'The goal prompt.' },
         },
         perform: async function (agent, prompt) {
-			let goalResp = null;
-            if (convoManager.inConversation()) {
-                agent.self_prompter.setPromptPaused(prompt);
-            }
-            else {
-                goalResp = agent.self_prompter.start(prompt);
-            }
+			let goalResp = agent.self_prompter.start(prompt);
             return !goalResp ? 'Bot in convo, self_prompter paused' : goalResp;
         }
     },
