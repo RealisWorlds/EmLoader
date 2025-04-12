@@ -26,7 +26,7 @@ const settings = {
         // using more than 1 profile requires you to /msg each bot indivually
         // individual profiles override values from the base profile
     ],
-    "logLevel": 1, // ERROR=0, WARN=1, INFO=2, DEBUG=3, TRACE=4
+    "logLevel": 4, // ERROR=0, WARN=1, INFO=2, DEBUG=3, TRACE=4
     "load_memory": true, // load memory from previous session
     "init_message": "Respond with hello world and your name", // sends to all on spawn
     "only_chat_with": [], // users that the bots listen to and send general messages to. if empty it will chat publicly

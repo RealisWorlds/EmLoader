@@ -222,136 +222,6 @@ export class Agent {
     }
 
     // batch with priority and immediate processing
-    // async handleMessage(source, message, max_responses=null, awaitResponse=false) {
-    //     try {
-    //         if (!source || !message) {
-    //             console.warn('Received empty message from', source);
-    //             return false;
-    //         }
-    //         // Really don't like seeing this message spammed, wasting API calls on other bots
-    //         if (message === 'My brain disconnected, try again.') {
-    //             console.warn(`${source}: My brain disconnected, try again.`);
-    //             return false;
-    //         }
-    //         logger.debug(`${source}: ${message}`);
-    //         const needsImmediateProcessing = (
-    //             source === 'system' || 
-    //             awaitResponse || 
-    //             !this.prompter.generatingPrompt
-    //         );
-    //         logger.debug('Needs immediate processing:', needsImmediateProcessing);
-    //         // If we need immediate processing and generation is already happening,
-    //         // wait for it to finish first
-    //         logger.debug('Checking for existing generation...');
-    //         if (needsImmediateProcessing && this.prompter.generatingPrompt) {
-    //             logger.debug(`Waiting for existing generation to complete before processing ${source} message`);
-    //             await new Promise(resolve => {
-    //                 const checkInterval = setInterval(() => {
-    //                     if (!this.prompter.generatingPrompt) {
-    //                         clearInterval(checkInterval);
-    //                         resolve();
-    //                     }
-    //                 }, 1000);
-    //             });
-    //         }
-    //         logger.debug('Checked for existing generation');
-    //         // For immediate processing, process now
-    //         logger.debug('Checking for immediate processing...');
-    //         if (needsImmediateProcessing) {
-    //             logger.debug('Processing immediate message...');
-    //             return await this._processMessage(source, message, max_responses);
-    //         }
-    //         logger.debug('Checked for immediate processing');
-    //         // For batch processing, add to batch
-    //         logger.debug('Checking for batch processing...');
-    //         return await this._withLock(async () => {
-    //             // Check if already batching
-    //             if (this._pendingUserMessages && awaitResponse === false) {
-    //                 logger.debug('Already batching, skipping message...');
-    //                 return true;
-    //             }
-                
-    //             // For regular user messages during generation, flag for later batch processing
-    //             logger.debug(`Batching message from ${source} for later processing`);
-                
-    //             this._pendingUserMessages = true;
-                
-    //             // Schedule batch processing if not already scheduled
-    //             if (!this._userMessageTimeout) {
-    //                 this._userMessageTimeout = setTimeout(async () => {
-    //                     try {
-    //                         // Lock again when the timer fires to safely reset state
-    //                         await this._withLock(async () => {
-    //                             this._userMessageTimeout = null;
-                                
-    //                             if (this._pendingUserMessages && !this.prompter.generatingPrompt) {
-    //                                 logger.debug('Processing batched user messages');
-                                    
-    //                                 // Reset flag BEFORE processing to prevent race conditions
-    //                                 this._pendingUserMessages = false;
-                                    
-    //                                 // Process outside the lock to allow new batches to form
-    //                                 setTimeout(() => {
-    //                                     this._processMessage(source, message, 1)
-    //                                         .catch(err => {
-    //                                             console.error('Error processing batch:', err);
-    //                                             // Reset pending flag in case of error to unblock the system
-    //                                             this._pendingUserMessages = false;
-    //                                             this._retryCount = 0;
-    //                                         });
-    //                                 }, 0);
-    //                             } else {
-    //                                 logger.debug('Skipping due to gen in progress: ', this._pendingUserMessages, this.prompter.generatingPrompt);
-    //                                 // Set up retry with counter
-    //                                 const retryCount = this._retryCount || 0;
-    //                                 if (retryCount < 5) {
-    //                                     setTimeout(() => {
-    //                                         this._userMessageTimeout = null;
-    //                                         this._retryCount = retryCount + 1;
-    //                                         logger.debug(`Retry attempt ${retryCount + 1}/5 for batched message`);
-    //                                         this.handleMessage(source, message, 1, false)
-    //                                             .catch(err => {
-    //                                                 console.error('Error in retry attempt:', err);
-    //                                                 // Reset pending flag in case of error to unblock the system
-    //                                                 this._pendingUserMessages = false;
-    //                                                 this._retryCount = 0;
-    //                                             });
-    //                                     }, 500);
-    //                                 } else {
-    //                                     logger.debug('Max retries reached, giving up on batched message');
-    //                                     this._pendingUserMessages = false;
-    //                                     this._retryCount = 0;
-    //                                 }
-    //                             }
-    //                         }).catch(err => {
-    //                             console.error('Lock acquisition error in timeout:', err);
-    //                             // Ensure we reset state in case of error with the lock itself
-    //                             this._pendingUserMessages = false;
-    //                             this._userMessageTimeout = null;
-    //                             this._retryCount = 0;
-    //                         });
-    //                     } catch (outerError) {
-    //                         // Catch any errors that might occur outside the lock
-    //                         console.error('Fatal error in batch processing timeout:', outerError);
-    //                         // Reset all state to ensure system doesn't get stuck
-    //                         this._pendingUserMessages = false;
-    //                         this._userMessageTimeout = null;
-    //                         this._retryCount = 0;
-    //                     }
-    //                 }, 1000);
-    //             }
-    //             // Non-awaited calls just return true
-    //             logger.debug('Non-awaited return')
-    //             return true;
-    //         });
-    //     } catch (error) {
-    //         console.error('Error in handleMessage:', error);
-    //         this._pendingUserMessages = false;
-    //         return false;
-    //     }
-    // }
-
-    // batch everything no prioritizing or immediate processing.
     async handleMessage(source, message, max_responses=null, awaitResponse=false) {
         try {
             if (!source || !message) {
@@ -364,24 +234,46 @@ export class Agent {
                 return false;
             }
             logger.debug(`${source}: ${message}`);
-            
-            // Simplified logic: if not generating, process immediately; otherwise batch
-            if (!this.prompter.generatingPrompt) {
-                logger.debug('No generation in progress, processing immediately...');
+            const needsImmediateProcessing = (
+                source === 'system' || 
+                awaitResponse || 
+                !this.prompter.generatingPrompt
+            );
+            logger.debug('Needs immediate processing:', needsImmediateProcessing);
+            // If we need immediate processing and generation is already happening,
+            // wait for it to finish first
+            logger.debug('Checking for existing generation...');
+            if (needsImmediateProcessing && this.prompter.generatingPrompt) {
+                logger.debug(`Waiting for existing generation to complete before processing ${source} message`);
+                await new Promise(resolve => {
+                    const checkInterval = setInterval(() => {
+                        if (!this.prompter.generatingPrompt) {
+                            clearInterval(checkInterval);
+                            resolve();
+                        }
+                    }, 1000);
+                });
+            }
+            logger.debug('Checked for existing generation');
+            // For immediate processing, process now
+            logger.debug('Checking for immediate processing...');
+            if (needsImmediateProcessing) {
+                logger.debug('Processing immediate message...');
                 return await this._processMessage(source, message, max_responses);
             }
-            
-            // If generation is in progress, batch the message
-            logger.debug('Generation in progress, checking for batch processing...');
+            logger.debug('Checked for immediate processing');
+            // For batch processing, add to batch
+            logger.debug('Checking for batch processing...');
             return await this._withLock(async () => {
                 // Check if already batching
-                if (this._pendingUserMessages) {
+                if (this._pendingUserMessages && awaitResponse === false) {
                     logger.debug('Already batching, skipping message...');
                     return true;
                 }
                 
-                // Flag for batch processing
+                // For regular user messages during generation, flag for later batch processing
                 logger.debug(`Batching message from ${source} for later processing`);
+                
                 this._pendingUserMessages = true;
                 
                 // Schedule batch processing if not already scheduled
@@ -458,6 +350,114 @@ export class Agent {
             return false;
         }
     }
+
+    // // batch everything no prioritizing or immediate processing.
+    // async handleMessage(source, message, max_responses=null, awaitResponse=false) {
+    //     try {
+    //         if (!source || !message) {
+    //             console.warn('Received empty message from', source);
+    //             return false;
+    //         }
+    //         // Really don't like seeing this message spammed, wasting API calls on other bots
+    //         if (message === 'My brain disconnected, try again.') {
+    //             console.warn(`${source}: My brain disconnected, try again.`);
+    //             return false;
+    //         }
+    //         logger.debug(`${source}: ${message}`);
+            
+    //         // Simplified logic: if not generating, process immediately; otherwise batch
+    //         if (!this.prompter.generatingPrompt) {
+    //             logger.debug('No generation in progress, processing immediately...');
+    //             return await this._processMessage(source, message, max_responses);
+    //         }
+            
+    //         // If generation is in progress, batch the message
+    //         logger.debug('Generation in progress, checking for batch processing...');
+    //         return await this._withLock(async () => {
+    //             // Check if already batching
+    //             if (this._pendingUserMessages) {
+    //                 logger.debug('Already batching, skipping message...');
+    //                 return true;
+    //             }
+                
+    //             // Flag for batch processing
+    //             logger.debug(`Batching message from ${source} for later processing`);
+    //             this._pendingUserMessages = true;
+                
+    //             // Schedule batch processing if not already scheduled
+    //             if (!this._userMessageTimeout) {
+    //                 this._userMessageTimeout = setTimeout(async () => {
+    //                     try {
+    //                         // Lock again when the timer fires to safely reset state
+    //                         await this._withLock(async () => {
+    //                             this._userMessageTimeout = null;
+                                
+    //                             if (this._pendingUserMessages && !this.prompter.generatingPrompt) {
+    //                                 logger.debug('Processing batched user messages');
+                                    
+    //                                 // Reset flag BEFORE processing to prevent race conditions
+    //                                 this._pendingUserMessages = false;
+                                    
+    //                                 // Process outside the lock to allow new batches to form
+    //                                 setTimeout(() => {
+    //                                     this._processMessage(source, message, 1)
+    //                                         .catch(err => {
+    //                                             console.error('Error processing batch:', err);
+    //                                             // Reset pending flag in case of error to unblock the system
+    //                                             this._pendingUserMessages = false;
+    //                                             this._retryCount = 0;
+    //                                         });
+    //                                 }, 0);
+    //                             } else {
+    //                                 logger.debug('Skipping due to gen in progress: ', this._pendingUserMessages, this.prompter.generatingPrompt);
+    //                                 // Set up retry with counter
+    //                                 const retryCount = this._retryCount || 0;
+    //                                 if (retryCount < 5) {
+    //                                     setTimeout(() => {
+    //                                         this._userMessageTimeout = null;
+    //                                         this._retryCount = retryCount + 1;
+    //                                         logger.debug(`Retry attempt ${retryCount + 1}/5 for batched message`);
+    //                                         this.handleMessage(source, message, 1, false)
+    //                                             .catch(err => {
+    //                                                 console.error('Error in retry attempt:', err);
+    //                                                 // Reset pending flag in case of error to unblock the system
+    //                                                 this._pendingUserMessages = false;
+    //                                                 this._retryCount = 0;
+    //                                             });
+    //                                     }, 500);
+    //                                 } else {
+    //                                     logger.debug('Max retries reached, giving up on batched message');
+    //                                     this._pendingUserMessages = false;
+    //                                     this._retryCount = 0;
+    //                                 }
+    //                             }
+    //                         }).catch(err => {
+    //                             console.error('Lock acquisition error in timeout:', err);
+    //                             // Ensure we reset state in case of error with the lock itself
+    //                             this._pendingUserMessages = false;
+    //                             this._userMessageTimeout = null;
+    //                             this._retryCount = 0;
+    //                         });
+    //                     } catch (outerError) {
+    //                         // Catch any errors that might occur outside the lock
+    //                         console.error('Fatal error in batch processing timeout:', outerError);
+    //                         // Reset all state to ensure system doesn't get stuck
+    //                         this._pendingUserMessages = false;
+    //                         this._userMessageTimeout = null;
+    //                         this._retryCount = 0;
+    //                     }
+    //                 }, 1000);
+    //             }
+    //             // Non-awaited calls just return true
+    //             logger.debug('Non-awaited return')
+    //             return true;
+    //         });
+    //     } catch (error) {
+    //         console.error('Error in handleMessage:', error);
+    //         this._pendingUserMessages = false;
+    //         return false;
+    //     }
+    // }
 
     async _processMessage(source, message, max_responses) {
     	try {
