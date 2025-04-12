@@ -4,6 +4,28 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import { logger } from '../../utils/logger.js';
 
+async function gotoInterruptible(bot, goal, dynamic = false) {
+	const pathfinder = bot.pathfinder
+  
+	// Start moving toward the goal
+	const gotoPromise = pathfinder.goto(goal, dynamic)
+  
+	// Also start a loop that periodically checks for your interrupt
+	const checkInterrupt = new Promise((_, reject) => {
+	  const interval = setInterval(() => {
+		if (bot.interrupt_code) {
+		  clearInterval(interval)
+		  pathfinder.stop() // forcibly halt pathfinding
+		  reject(new Error('Interrupted by user/program'))
+		}
+		// If pathfinder finishes or fails, we’ll rely on gotoPromise finishing
+	  }, 200) // Check every 200ms
+	})
+  
+	// Race them – if the interrupt fires first, we stop pathfinding
+	return Promise.race([gotoPromise, checkInterrupt])
+  }
+
 class DesignAwareMovements extends pf.Movements {
     constructor(bot) {
       super(bot);
@@ -22,7 +44,6 @@ class DesignAwareMovements extends pf.Movements {
 		// 		Math.round(protectedBlock.position.z*2)/2 === Math.round(block.position.z*2)/2 &&
 		// 		protectedBlock.name === block.name
 		// );
-
 		// if (isProtected) return false;
 		// Otherwise use the original logic
 		return super.safeToBreak(block);
@@ -453,14 +474,14 @@ export async function defendSelf(bot, range=9) {
             if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
                 try {
                     bot.pathfinder.setMovements(new pf.Movements(bot));
-                    await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
+                    await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalFollow(enemy, 3.5), true);
                 } catch (err) {/* might error if entity dies, ignore */}
             }
             if (bot.entity.position.distanceTo(enemy.position) <= 2) {
                 try {
                     bot.pathfinder.setMovements(new pf.Movements(bot));
                     let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
-                    await bot.pathfinder.goto(inverted_goal, true);
+                    await bot.pathfinder.gotoInterruptible(bot, inverted_goal, true);
                 } catch (err) {/* might error if entity dies, ignore */}
             }
             bot.pvp.attack(enemy);
@@ -585,7 +606,7 @@ export async function pickupNearbyItems(bot) {
 	    let pickedUp = 0;
 	    while (nearestItem) {
 	        bot.pathfinder.setMovements(new pf.Movements(bot));
-	        await bot.pathfinder.goto(new pf.goals.GoalFollow(nearestItem, 0.8), true);
+	        await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalFollow(nearestItem, 0.8), true);
 	        await new Promise(resolve => setTimeout(resolve, 200));
 	        let prev = nearestItem;
 	        nearestItem = getNearestItem(bot);
@@ -632,7 +653,7 @@ export async function breakBlockAt(bot, x, y, z) {
 	            movements.canPlaceOn = false;
 	            movements.allow1by1towers = false;
 	            bot.pathfinder.setMovements(movements);
-	            await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
+	            await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
 	        }
 	        if (bot.game.gameMode !== 'creative') {
 	            await bot.tool.equipForBlock(block);
@@ -795,7 +816,7 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
 	        let goal = new pf.goals.GoalNear(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z, 2);
 	        let inverted_goal = new pf.goals.GoalInvert(goal);
 	        bot.pathfinder.setMovements(new pf.Movements(bot));
-	        await bot.pathfinder.goto(inverted_goal);
+	        await bot.pathfinder.gotoInterruptible(bot, inverted_goal);
 	    }
 		if (checkInterrupt(bot)) return false;
 	    if (bot.entity.position.distanceTo(targetBlock.position) > 4.5) {
@@ -804,7 +825,7 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
 	        //let movements = new pf.Movements(bot);
 	        let movements = getDesignAwareMovements(bot);
 	        bot.pathfinder.setMovements(movements);
-	        await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
+	        await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
 	    }
 		if (checkInterrupt(bot)) return false;
 		if (bot.entity.position.distanceTo(targetBlock.position) <= 1) {
@@ -1451,7 +1472,7 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
 	    const progressInterval = setInterval(checkProgress, 1000);
 	    
 	    try {
-	        await bot.pathfinder.goto(new pf.goals.GoalNear(x, y, z, min_distance));
+	        await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalNear(x, y, z, min_distance));
 	        log(bot, `You have reached at ${x}, ${y}, ${z}.`);
 	        return true;
 	    } catch (err) {
@@ -1552,7 +1573,7 @@ export async function goToPlayer(bot, username, distance=3) {
 	
 	    const move = new pf.Movements(bot);
 	    bot.pathfinder.setMovements(move);
-	    await bot.pathfinder.goto(new pf.goals.GoalFollow(player, distance), true);
+	    await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalFollow(player, distance), true);
 	
 	    log(bot, `You have reached ${username}.`);
     } catch (err) {
@@ -1634,7 +1655,7 @@ export async function moveAway(bot, distance) {
 	        }
 	    }
 	
-	    await bot.pathfinder.goto(inverted_goal);
+	    await bot.pathfinder.gotoInterruptible(bot, inverted_goal);
 	    let new_pos = bot.entity.position;
 	    log(bot, `Moved away from nearest entity to ${new_pos}.`);
 	    return true;
@@ -1657,7 +1678,7 @@ export async function moveAwayFromEntity(bot, entity, distance=16) {
     bot.pathfinder.setMovements(new pf.Movements(bot));
     try {
 		if (checkInterrupt(bot)) return false;
-        await bot.pathfinder.goto(inverted_goal);
+        await bot.pathfinder.gotoInterruptible(bot, inverted_goal);
     } catch (err) {
         log(bot, `Failed to move away: ${err.message}`);
         return false;
@@ -1863,7 +1884,7 @@ export async function tillAndSow(bot, x, y, z, seedType=null) {
 	    if (bot.entity.position.distanceTo(block.position) > 4.5) {
 	        let pos = block.position;
 	        bot.pathfinder.setMovements(new pf.Movements(bot));
-	        await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
+	        await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
 	    }
 	    if (block.name !== 'farmland') {
 	        let hoe = bot.inventory.items().find(item => item.name.includes('hoe'));
@@ -1915,7 +1936,7 @@ export async function activateNearestBlock(bot, type) {
 	    if (bot.entity.position.distanceTo(block.position) > 4.5) {
 	        let pos = block.position;
 	        bot.pathfinder.setMovements(new pf.Movements(bot));
-	        await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
+	        await bot.pathfinder.gotoInterruptible(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
 	    }
 	    await bot.activateBlock(block);
 	    log(bot, `Activated ${type} at x:${block.position.x.toFixed(1)}, y:${block.position.y.toFixed(1)}, z:${block.position.z.toFixed(1)}.`);
