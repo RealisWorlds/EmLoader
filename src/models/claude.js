@@ -43,7 +43,7 @@ export class Claude {
                 res = textContent.text;
             } else {
                 console.warn('No text content found in the response.');
-                res = 'No response from Claude.';
+                res = '';
             }
         }
         catch (err) {

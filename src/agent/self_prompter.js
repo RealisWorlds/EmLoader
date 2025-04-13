@@ -67,8 +67,9 @@ export class SelfPrompter {
         const MAX_NO_COMMAND = 3;
         while (!this.interrupt) {
             const msg = `You are self-prompting with the goal: '${this.prompt}'. Your next response MUST contain a command with this syntax: !commandName. Respond:`;
-            
+            logger.debug('self prompting handleMessage');
             let used_command = await this.agent.handleMessage('system', msg, -1, true);
+            logger.debug('self prompting handleMessage response: ', used_command);
             if (!used_command) {
                 no_command_count++;
                 if (no_command_count >= MAX_NO_COMMAND) {
@@ -142,7 +143,8 @@ export class SelfPrompter {
 
     handleUserPromptedCmd(is_self_prompt, is_action) {
         // if a user messages and the bot responds with an action, stop the self-prompt loop
-        if (!is_self_prompt && is_action) {
+        // if (!is_self_prompt && is_action) {
+        if (!is_self_prompt) {
             this.stopLoop();
             // this stops it from responding from the handlemessage loop and the self-prompt loop at the same time
         }

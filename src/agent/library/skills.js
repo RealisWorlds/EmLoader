@@ -5,18 +5,21 @@ import Vec3 from 'vec3';
 import { logger } from '../../utils/logger.js';
 
 async function gotoInterruptible(bot, goal, dynamic = false) {
-	const pathfinder = bot.pathfinder
   
 	// Start moving toward the goal
 	try {
-		const gotoPromise = pathfinder.goto(goal, dynamic);
+		const gotoPromise = bot.pathfinder.goto(goal, dynamic);
 		// Also start a loop that periodically checks for your interrupt
 		const checkInterrupt = new Promise((_, reject) => {
 		const interval = setInterval(() => {
 			if (bot.interrupt_code) {
 			clearInterval(interval)
-			pathfinder.stop() // forcibly halt pathfinding
-			reject(new Error('Interrupted by user/program'))
+			bot.stopDigging();
+	        bot.collectBlock.cancelTask();
+	        bot.pathfinder.stop();
+	        bot.pvp.stop();
+			// reject(new Error('Interrupted by user/program'));
+			reject(false);
 			}
 			// If pathfinder finishes or fails, we’ll rely on gotoPromise finishing
 		}, 200) // Check every 200ms
@@ -205,7 +208,7 @@ export async function wait(bot, milliseconds) {
     while (timeLeft > 0) {
         if (checkInterrupt(bot)) return false;
         
-        let waitTime = Math.min(2000, timeLeft);
+        let waitTime = Math.min(1000, timeLeft);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         
         let elapsed = Date.now() - startTime;
@@ -830,48 +833,48 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
 			await moveAway(bot, 1);
 		}
 		if (checkInterrupt(bot)) return false;
-		if (!buildOffBlock) {
-            const maxScaffoldRadius = 10;
-            const scaffoldMaterial = 'dirt';
-            log(bot, `No adjacent blocks found at ${targetBlock.position}, attempting to scaffold...`);
+		// if (!buildOffBlock) {
+        //     const maxScaffoldRadius = 10;
+        //     const scaffoldMaterial = 'dirt';
+        //     log(bot, `No adjacent blocks found at ${targetBlock.position}, attempting to scaffold...`);
 
-            // Find nearby blocks to build from
-            const scaffoldPath = await findScaffoldPath(bot, target_dest, scaffoldMaterial, maxScaffoldRadius, empty_blocks);
+        //     // Find nearby blocks to build from
+        //     const scaffoldPath = await findScaffoldPath(bot, target_dest, scaffoldMaterial, maxScaffoldRadius, empty_blocks);
             
-            if (!scaffoldPath || scaffoldPath.length === 0) {
-                log(bot, `Cannot find a path to scaffold to ${targetBlock.position}.`);
-                return false;
-            }
+        //     if (!scaffoldPath || scaffoldPath.length === 0) {
+        //         log(bot, `Cannot find a path to scaffold to ${targetBlock.position}.`);
+        //         return false;
+        //     }
             
-            log(bot, `Found scaffold path with ${scaffoldPath.length} blocks to place.`);
+        //     log(bot, `Found scaffold path with ${scaffoldPath.length} blocks to place.`);
             
-            // Place scaffolding blocks along the path
-            for (const scaffoldPos of scaffoldPath) {
-                const scaffoldItem = await _getMaterialForPlace(bot, scaffoldMaterial);
-				if (!scaffoldItem) return false;
+        //     // Place scaffolding blocks along the path
+        //     for (const scaffoldPos of scaffoldPath) {
+        //         const scaffoldItem = await _getMaterialForPlace(bot, scaffoldMaterial);
+		// 		if (!scaffoldItem) return false;
                 
-				try {
-					if (checkInterrupt(bot)) return false;
-					await wait(bot, 50);
-					await bot.equip(scaffoldItem, 'hand');
-					await bot.lookAt(scaffoldPos);
-					if (checkInterrupt(bot)) return false;
-                	await placeBlock(bot, scaffoldMaterial, scaffoldPos.x, scaffoldPos.y, scaffoldPos.z, placeOn, dontCheat, true);
-					if (checkInterrupt(bot)) return false;
-				} catch (ee) {
-					await bot.moveAway(5);
-					if (checkInterrupt(bot)) return false;
-					await wait(bot, 50);
-					await bot.equip(scaffoldItem, 'hand');
-					await bot.lookAt(scaffoldPos);
-					if (checkInterrupt(bot)) return false;
-					await placeBlock(bot, scaffoldMaterial, scaffoldPos.x, scaffoldPos.y, scaffoldPos.z, placeOn, dontCheat, true);
-					if (checkInterrupt(bot)) return false;
-				}
-                bot.scaffoldBlocks.push(bot.blockAt(scaffoldPos));
-                await wait(bot, 50);
-            }
-        }
+		// 		try {
+		// 			if (checkInterrupt(bot)) return false;
+		// 			await wait(bot, 50);
+		// 			await bot.equip(scaffoldItem, 'hand');
+		// 			await bot.lookAt(scaffoldPos);
+		// 			if (checkInterrupt(bot)) return false;
+        //         	await placeBlock(bot, scaffoldMaterial, scaffoldPos.x, scaffoldPos.y, scaffoldPos.z, placeOn, dontCheat, true);
+		// 			if (checkInterrupt(bot)) return false;
+		// 		} catch (ee) {
+		// 			await moveAway(bot, 5);
+		// 			if (checkInterrupt(bot)) return false;
+		// 			await wait(bot, 50);
+		// 			await bot.equip(scaffoldItem, 'hand');
+		// 			await bot.lookAt(scaffoldPos);
+		// 			if (checkInterrupt(bot)) return false;
+		// 			await placeBlock(bot, scaffoldMaterial, scaffoldPos.x, scaffoldPos.y, scaffoldPos.z, placeOn, dontCheat, true);
+		// 			if (checkInterrupt(bot)) return false;
+		// 		}
+        //         bot.scaffoldBlocks.push(bot.blockAt(scaffoldPos));
+        //         await wait(bot, 50);
+        //     }
+        // }
 
 	    if (!buildOffBlock) {
 	        log(bot, `Cannot place ${blockType} at ${targetBlock.position}: nothing to place on.`);
@@ -885,7 +888,7 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
 	    try {
 	        await bot.placeBlock(buildOffBlock, faceVec);
 	        log(bot, `Placed ${blockType} at ${target_dest}.`);
-	        await new Promise(resolve => setTimeout(resolve, 200));
+	        await new Promise(resolve => setTimeout(resolve, 100));
 	        return true;
 	    } catch (err) {
 	        log(bot, `Failed to place ${blockType} at ${target_dest}.`);

@@ -18,6 +18,7 @@ import { Task } from './tasks.js';
 import { say } from './speak.js';
 import { logger } from '../utils/logger.js';
 import { spawn } from 'child_process';
+import * as world from './library/world.js';
 
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -133,7 +134,10 @@ export class Agent {
                 
                 // // Process normally
                 let translation = await handleEnglishTranslation(message);
+                logger.debug(this.name, 'translated message from', username, ':', translation);
                 this.handleMessage(username, translation);
+                logger.debug(this.name, 'handled message from', username, ':', translation);
+
             } catch (error) {
                 console.error('Error handling message:', error);
             }
@@ -162,7 +166,9 @@ export class Agent {
             this.last_sender = save_data.last_sender;
         }
         else if (init_message) {
+            logger.debug(this.name, 'init message:', init_message);
             await this.handleMessage('system', init_message, 2, true);
+            logger.debug(this.name, 'handled init message:', init_message);
         }
         else {
             this.openChat("Hello world! I am "+this.name);
@@ -193,150 +199,69 @@ export class Agent {
         }
     }
 
-    _pendingUserMessages = false;
-    _userMessageTimeout = null;
-
-    // Modified handleMessage function for Agent class
-    // Safe reset helper
-_resetBatch() {
-    try {
-        this._batchedMessageCount = 0;
-        this._batchRetryCount = 0;
-        if (this._batchProcessingTimeout) {
-            clearTimeout(this._batchProcessingTimeout);
-            this._batchProcessingTimeout = null;
-        }
-    } catch (e) {
-        logger.error('Reset error:', e);
-        this._batchedMessageCount = 0;
-    }
-}
-
-// Minimal handleMessage implementation
-async handleMessage(source, message, max_responses=null, awaitResponse=false) {
-    try {
+    async handleMessage(source, message, max_responses=null) {
         if (!source || !message) {
             console.warn('Received empty message from', source);
             return false;
         }
-        
-        // Init batch properties
-        if (this._batchedMessageCount === undefined) {
-            this._batchedMessageCount = 0;
-            this._batchRetryCount = 0;
-            this._batchProcessingTimeout = null;
-            this._maxBatchSize = settings.max_messages; //10;
-            this._batchCollectionTime = 3000;
-        }
-        
-        // Always add to history
-        await this.history.add(source, message);
-        await this.history.save();
-        
-        // If generating, handle batching
-        if (this.prompter.generatingPrompt) {
-            logger.debug(`Message received while generating, batching: ${source}: ${message}`);
-            
-            try {
-                if (this._batchedMessageCount < this._maxBatchSize) {
-                    this._batchedMessageCount++;
-                    
-                    if (this._batchProcessingTimeout) {
-                        clearTimeout(this._batchProcessingTimeout);
-                    }
-                    
-                    this._batchProcessingTimeout = setTimeout(() => {
-                        try {
-                            this.processBatchedMessages(source);
-                        } catch (e) {
-                            logger.error('Batch schedule error:', e);
-                            this._resetBatch();
-                        }
-                    }, this._batchCollectionTime);
-                } else {
-                    logger.warn(`Max batch size (${this._maxBatchSize}) reached`);
-                }
-            } catch (e) {
-                logger.error('Batch error:', e);
-                this._resetBatch();
-            }
-            
-            return true;
-        }
-        
-        // Continue with normal message processing
-        const self_prompt = source === 'system' || source === this.name;
-        const from_other_bot = convoManager.isOtherAgent(source);
 
-        if (from_other_bot)
-            this.last_sender = source;
-
-        // Translate the message
-        message = await handleEnglishTranslation(message);
-        logger.debug(`received message from ${source}: ${message}`);
-
-        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up;
-        
-        let behavior_log = this.bot.modes.flushBehaviorLog();
-        if (behavior_log.trim().length > 0) {
-            const MAX_LOG = 500;
-            if (behavior_log.length > MAX_LOG) {
-                behavior_log = '...' + behavior_log.substring(behavior_log.length - MAX_LOG);
-            }
-            behavior_log = 'Recent behaviors log: \n' + behavior_log.substring(behavior_log.indexOf('\n'));
-            await this.history.add('system', behavior_log);
-        }
-        
-        let res = '';
         let used_command = false;
-        
         if (max_responses === null) {
             max_responses = settings.max_commands === -1 ? Infinity : settings.max_commands;
         }
         if (max_responses === -1) {
             max_responses = Infinity;
         }
+
+        const self_prompt = source === 'system' || source === this.name;
+        const from_other_bot = convoManager.isOtherAgent(source);
+
+        if (from_other_bot)
+            this.last_sender = source;
+
+        // Now translate the message
+        message = await handleEnglishTranslation(message);
+        console.log('received message from', source, ':', message);
+
+        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up;
         
-        // Limit responses during self-prompting
-        if (!self_prompt && this.self_prompter.isActive()) {
-            max_responses = 1; // force only respond to this message, then let self-prompting take over
+        let behavior_log = this.bot.modes.flushBehaviorLog().trim();
+        if (behavior_log.length > 0) {
+            const MAX_LOG = 500;
+            if (behavior_log.length > MAX_LOG) {
+                behavior_log = '...' + behavior_log.substring(behavior_log.length - MAX_LOG);
+            }
+            behavior_log = 'Recent behaviors log: \n' + behavior_log;
+            await this.history.add('system', behavior_log);
         }
-        
-        // Process the message
+
+        // Handle other user messages
+        await this.history.add(source, message);
+        this.history.save();
+
+        if (!self_prompt && this.self_prompter.isActive()) // message is from user during self-prompting
+            max_responses = 1; // force only respond to this message, then let self-prompting take over
         for (let i=0; i<max_responses; i++) {
             if (checkInterrupt()) break;
-            
             let history = this.history.getHistory();
-            try {
-                res = await this.prompter.promptConvo(history);
-            } catch (error) {
-                console.error('Error getting response:', error.substring ? error.substring(0, 100) : error);
-                continue;
-            }
+            let res = await this.prompter.promptConvo(history);
 
-            logger.debug(`${this.name} full response to ${source}: ""${res}""`);
+            console.log(`${this.name} full response to ${source}: ""${res}""`);
             
             if (res.trim().length === 0) { 
-                console.warn('no response');
-                break;
-            }
-            
-            // Check for !ignore
-            if (res.includes('!ignore')) {
-                logger.debug(`Ignoring message from ${source} based on AI directive: ${res}`);
-                break;
+                console.warn('no response')
+                break; // empty response ends loop
             }
 
             let command_name = containsCommand(res);
 
             if (command_name) { // contains query or command
-                logger.debug('contains command', command_name, 'from res:', res);
                 res = truncCommandMessage(res); // everything after the command is ignored
-                await this.history.add(this.name, res);
+                this.history.add(this.name, res);
                 
                 if (!commandExists(command_name)) {
-                    await this.history.add('system', `Command ${command_name} does not exist.`);
-                    console.warn('Agent hallucinated command:', command_name);
+                    this.history.add('system', `Command ${command_name} does not exist.`);
+                    console.warn('Agent hallucinated command:', command_name)
                     continue;
                 }
 
@@ -344,7 +269,7 @@ async handleMessage(source, message, max_responses=null, awaitResponse=false) {
                 this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
 
                 if (settings.verbose_commands) {
-                    await this.routeResponse(source, res);
+                    this.routeResponse(source, res);
                 }
                 else { // only output command name
                     let pre_message = res.substring(0, res.indexOf(command_name)).trim();
@@ -355,131 +280,26 @@ async handleMessage(source, message, max_responses=null, awaitResponse=false) {
                 }
 
                 let execute_res = await executeCommand(this, res);
-                if (!execute_res) {
-                    execute_res = `Command ${command_name} execution was stopped.`;
-                }
 
-                logger.debug('Agent executed:', command_name, 'and got:', execute_res);
+                console.log('Agent executed:', command_name, 'and got:', execute_res);
                 used_command = true;
 
-                if (execute_res) {
-                    await this.history.add('system', execute_res);
-                }
+                if (execute_res)
+                    this.history.add('system', execute_res);
                 else
                     break;
             }
             else { // conversation response
-                await this.routeResponse(source, res);
-                await this.history.add(this.name, res);
+                this.history.add(this.name, res);
+                this.routeResponse(source, res);
                 break;
             }
             
-            await this.history.save();
+            this.history.save();
         }
 
         return used_command;
-    } catch (e) {
-        console.error('HandleMessage error:', e);
-        this._resetBatch();
-        return false;
     }
-}
-
-// Minimal processBatchedMessages implementation
-async processBatchedMessages(source) {
-    try {
-        // Only process if not generating and have messages
-        if (!this.prompter.generatingPrompt && this._batchedMessageCount > 0) {
-            logger.debug(`Processing ${this._batchedMessageCount} batched messages`);
-            
-            // Reset counters BEFORE processing
-            const messageCount = this._batchedMessageCount;
-            this._resetBatch();
-            
-            // Get history and generate response
-            let history = this.history.getHistory();
-            let res = null;
-            
-            try {
-                // Set a simple timeout
-                const timeoutPromise = Promise.race([
-                    this.prompter.promptConvo(history),
-                    delay(10000).then(() => { throw new Error("Batch timeout"); })
-                ]);
-                
-                res = await timeoutPromise;
-                
-                if (res && res.trim().length > 0 && !res.includes('!ignore')) {
-                    await this.handleBatchedResponse(res, source);
-                }
-            } catch (e) {
-                logger.error('Batch processing error:', e);
-            }
-        } else if (this.prompter.generatingPrompt) {
-            // If still generating, reschedule with Promise instead of setTimeout
-            if (this._batchRetryCount === undefined) this._batchRetryCount = 0;
-            
-            if (this._batchRetryCount < 10) {
-                logger.debug(`Still generating, rescheduling (${++this._batchRetryCount}/10)`);
-                
-                // Use Promise-based delay instead of setTimeout
-                try {
-                    await delay(500);
-                    this.processBatchedMessages(source);
-                } catch (e) {
-                    logger.error('Batch retry error:', e);
-                    this._resetBatch();
-                }
-            } else {
-                logger.warn("Max retries reached, abandoning batch");
-                this._resetBatch();
-            }
-        }
-    } catch (e) {
-        logger.error('Process batch error:', e);
-        this._resetBatch();
-    }
-}
-
-// Minimal handleBatchedResponse implementation
-async handleBatchedResponse(res, source) {
-    try {
-        logger.debug(`Processing batched response: ${res}`);
-        let command_name = containsCommand(res);
-        
-        if (command_name) { // Command
-            res = truncCommandMessage(res);
-            await this.history.add(this.name, res);
-            
-            if (!commandExists(command_name)) {
-                await this.history.add('system', `Command ${command_name} does not exist.`);
-                return;
-            }
-            
-            // Handle routing
-            if (settings.verbose_commands) {
-                await this.routeResponse(source, res);
-            } else {
-                let pre_message = res.substring(0, res.indexOf(command_name)).trim();
-                let chat_message = pre_message || `*used ${command_name.substring(1)}*`;
-                this.routeResponse(source, chat_message);
-            }
-            
-            // Execute command
-            let execute_res = await executeCommand(this, res);
-            if (execute_res) {
-                await this.history.add('system', execute_res);
-            }
-        } else { // Conversation
-            await this.routeResponse(source, res);
-            await this.history.add(this.name, res);
-        }
-        
-        await this.history.save();
-    } catch (e) {
-        logger.error('Handle batch response error:', e);
-    }
-}
 
     async routeResponse(to_player, message) {
         if (this.shut_up) return;
@@ -489,13 +309,14 @@ async handleBatchedResponse(res, source) {
         }
 
         // otherwise, use open chat
-        if (!message.startsWith('SYSTEM:') && !message.startsWith('Code output:')) {
-            this.openChat(message);
-        }
+        this.openChat(message);
         // note that to_player could be another bot, but if we get here the conversation has ended
     }
 
     async openChat(message) {
+        let players = world.getNearbyPlayerNames(this.bot);
+        if (players.length === 0) return;
+
         let to_translate = message;
         let remaining = '';
         let command_name = containsCommand(message);
@@ -506,18 +327,24 @@ async handleBatchedResponse(res, source) {
         }
         message = (await handleTranslation(to_translate)).trim() + " " + remaining;
         // newlines are interpreted as separate chats, which triggers spam filters. replace them with spaces
-        message = message.replaceAll('\n', ' ');
+        //message = message.replaceAll('\n', ' ');
+        // take first line
+        message = message.split('\n')[0];
+        if (!message.startsWith('SYSTEM:') && !message.includes('Code output:')) {
+            // trim trailing and leading " from the message
+            message = message.replace(/^"|"$/g, '');
 
-        if (settings.only_chat_with.length > 0) {
-            for (let username of settings.only_chat_with) {
-                this.bot.whisper(username, message);
+            if (settings.only_chat_with.length > 0) {
+                for (let username of settings.only_chat_with) {
+                    this.bot.whisper(username, message);
+                }
             }
-        }
-        else {
-	    if (settings.speak) {
-            say(to_translate);
-	    }
-            this.bot.chat(message);
+            else {
+            if (settings.speak) {
+                say(to_translate);
+            }
+                this.bot.chat(message);
+            }
         }
     }
 
@@ -609,7 +436,7 @@ async handleBatchedResponse(res, source) {
 
     async update(delta) {
         if (this.prompter) {
-          this.cooldown = 2000;
+          this.cooldown = this.prompter.cooldown ? this.prompter.cooldown : 5000;
         }
         await this.bot.modes.update();
         this.self_prompter.update(delta);

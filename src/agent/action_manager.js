@@ -1,5 +1,6 @@
 import { ActionStateManager } from './action_state_manager.js';
 import { logger } from '../utils/logger.js';
+import settings from '../../settings.js';
 
 export class ActionManager {
     constructor(agent) {
@@ -31,7 +32,7 @@ export class ActionManager {
         if (!this.executing) return;
         const timeout = setTimeout(() => {
             this.agent.cleanKill('Code execution refused stop after 10 seconds. Killing process.');
-        }, 30000);
+        }, settings.gen_timeout * 1000);
         while (this.executing) {
             this.agent.requestInterrupt();
             logger.debug('waiting for code to finish executing...');
@@ -122,6 +123,41 @@ export class ActionManager {
             } else {
                 output = await actionFn();
             }
+
+            // start the action
+// let output = null;
+// let actionPromise = null;
+
+// if (actionFn.toString().includes('(bot)') || actionFn.toString().includes('(bot,')) {
+//     actionPromise = actionFn(this.agent.bot);
+// } else {
+//     actionPromise = actionFn();
+// }
+
+// // Make the execution interruptible
+// output = await new Promise((resolve, reject) => {
+//     const nowtime = Date.now();
+//     const interval = setInterval(() => {
+//         if (this.agent.bot.interrupt_code) {
+//             // if interrupt code is high for 60 seconds
+//             if (Date.now() - nowtime > 60000) {
+//                 clearInterval(interval);
+//                 reject(new Error('Action interrupted'));
+//             }
+//         }
+//     }, 100); // Check every 100ms
+
+//     actionPromise
+//         .then(result => {
+//             clearInterval(interval);
+//             resolve(result);
+//         })
+//         .catch(error => {
+//             clearInterval(interval);
+//             reject(error);
+//         });
+// });
+
             // mark action as finished + cleanup
             this.executing = false;
             this.currentActionLabel = '';

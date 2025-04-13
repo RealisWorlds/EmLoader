@@ -28,14 +28,33 @@ export function blacklistCommands(commands) {
     }
 }
 
-const commandRegex = /!(\w+)(?:\(((?:-?\d+(?:\.\d+)?|true|false|"[^"]*")(?:\s*,\s*(?:-?\d+(?:\.\d+)?|true|false|"[^"]*"))*)\))?/
-const argRegex = /-?\d+(?:\.\d+)?|true|false|"[^"]*"/g;
+const commandRegex = /!(\w+)(?:\(((?:-?\d+(?:\.\d+)?|true|false|"[^"]*"|'[^']*')(?:\s*,\s*(?:-?\d+(?:\.\d+)?|true|false|"[^"]*"|'[^']*'))*)\))?/
+const argRegex = /-?\d+(?:\.\d+)?|true|false|"[^"]*"|'[^']*'/g;
 
 export function containsCommand(message) {
-    const commandMatch = message.match(commandRegex);
-    if (commandMatch)
-        return "!" + commandMatch[1];
+    // More robust command detection
+    const lines = message.split('\n');
+    for (const line of lines) {
+        const commandMatch = line.match(commandRegex);
+        if (commandMatch) {
+            return "!" + commandMatch[1];
+        }
+    }
     return null;
+}
+
+export function truncCommandMessage(message) {
+    const lines = message.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const commandMatch = lines[i].match(commandRegex);
+        if (commandMatch) {
+            // Return everything up to and including the command
+            return lines.slice(0, i).join('\n') + 
+                   (i > 0 ? '\n' : '') + 
+                   lines[i].substring(0, commandMatch.index + commandMatch[0].length);
+        }
+    }
+    return message;
 }
 
 export function commandExists(commandName) {
@@ -185,14 +204,6 @@ export function parseCommandMessage(message) {
     return { commandName, args: parsedArgs };
 }
 
-export function truncCommandMessage(message) {
-    const commandMatch = message.match(commandRegex);
-    if (commandMatch) {
-        return message.substring(0, commandMatch.index + commandMatch[0].length);
-    }
-    return message;
-}
-
 export function isAction(name) {
     return actionsList.find(action => action.name === name) !== undefined;
 }
@@ -260,7 +271,7 @@ export async function executeCommand(agent, message) {
             }
             
             // Execute the command normally
-            const result = await command.perform(agent, ...parsed.args);
+            let result = await command.perform(agent, ...parsed.args);
             if (typeof result === 'boolean') {
                 result = result ? 'Success running ' + command.name : 'Possible failure running ' + command.name;
             }

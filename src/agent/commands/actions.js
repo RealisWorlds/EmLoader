@@ -10,6 +10,10 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
         // Set actionLabel only once, when the action is first created
         if (!actionLabel) {
             const actionObj = actionsList.find(a => a.perform === wrappedAction);
+            if (!actionObj) {
+                logger.error('wrappedAction returned null');
+                return 'wrappedAction returned null';
+            }
             logger.debug('actions.js wrappedAction: ', actionObj);
             actionLabel = actionObj.name.substring(1); // Remove the ! prefix
         }
@@ -45,10 +49,12 @@ export const actionsList = [
             }
             let result = "";
             // agent.coder.actionLabel = prompt;
-            logger.debug('actions.js actionLabel: ', prompt);
+            
             const actionFn = async () => {
                 try {
+                    logger.debug('actions.js actionLabel: ', prompt);
                     result = await agent.coder.generateCode(agent.history, prompt);
+                    logger.debug('actions.js result: ', result);
                 } catch (e) {
                     result = 'Error generating code: ' + e.toString();
                 }

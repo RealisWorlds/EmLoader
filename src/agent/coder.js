@@ -123,7 +123,7 @@ export class Coder {
                 try {
                     logger.debug('Executing code...');
                     await executionModule.main(this.agent.bot);
-
+                    logger.debug('Code executed successfully');
                     const code_output = this.agent.actions.getBotOutputSummary();
                     const summary = "Agent wrote this code: \n```" + this._sanitizeCode(code) + "```\nCode Output:\n" + code_output;
                     return summary;

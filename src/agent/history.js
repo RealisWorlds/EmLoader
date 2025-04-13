@@ -67,6 +67,14 @@ export class History {
             role = 'user';
             content = `${name}: ${content}`;
         }
+
+        if (this.turns.length > 0 && 
+            this.turns[this.turns.length - 1].content === content) {
+            // Skip adding duplicate system message
+            logger.debug('Skipping duplicate message');
+            return;
+        }
+        
         this.turns.push({role, content});
         logger.debug('added turn:', {role, content});
 

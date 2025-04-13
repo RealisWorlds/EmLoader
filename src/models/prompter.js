@@ -309,89 +309,87 @@ export class Prompter {
         }
         this.last_prompt_time = Date.now();
     }
-
-    generatingPrompt = false;
-
-    // Modified promptConvo method for Prompter class
+    existingActionLabel = null;
     async promptConvo(messages) {
         this.most_recent_msg_time = Date.now();
         let current_msg_time = this.most_recent_msg_time;
-        
-        // This occurs when a message comes in after this function is already running
-        if (current_msg_time !== this.most_recent_msg_time || this.generatingPrompt) {
-            return '';
-        }
-        
-        logger.debug('Prompting conversation...');
-        this.generatingPrompt = true;
-        logger.debug('set generatingPrompt to true');
-        
-        const checkInterrupt = () => this.agent.bot.interrupt_code || this.agent.shut_up;
-        
-        try {
-            for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
-                if (checkInterrupt()) break;
-                logger.debug('try', i + 1, 'of 3');
-                await this.checkCooldown();
-                logger.debug('checked cooldown');
-                let addIgnorePrompt = `
-                Response rules: 
-                1) You are in a realistic world. If you pick a fight and die, you die forever. Fear for your life.
-                2) Understand your given name. You must decide using provided context and human interaction rules whether someone is talking to you or not.
-                - You're being addressed (and MUST NOT respond with !ignore) if a user:
-                - Mentions you by name or nickname directly
-                - OR refers to "everyone," "everybody" or ANY collective term
-                - OR refers to "anyone near me" or "those around me" or similar proximity-based references
-                - OR continues a conversation where you were previously addressed
-                - IMPORTANT: ANY message directed at multiple entities automatically includes you unless explicitly stated otherwise
-                - If and ONLY if you are absolutely certain you are not being addressed (directly or indirectly), respond with !ignore and briefly explain why
-                3) You should address anyone that is talking to you in your next message. If !ignore is in your response, your entire message will be discarded and not heard by anyone.
-                - Therefore, you may not use !ignore if there's any possibility the message includes you.
-                `;
-                let prompt = addIgnorePrompt + '\n' + this.profile.conversing;
-                logger.debug('set prompt to profile.conversing');
-                prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
-                logger.debug('replaced strings');
-                let generation = '';
-                // API request with retries for network errors
-                logger.debug('combined prompt');
-                let nowTime = new Date().getTime();
-                logger.debug('starting API request');
-                for (let retryCount = 0; retryCount < 3; retryCount++) {
-                    try {
-                        if (checkInterrupt()) break;
-                        logger.debug('starting API request retry', retryCount + 1);
-                        generation = await this.chat_model.sendRequest(messages, prompt);
-                        logger.debug('API request retry', retryCount + 1, 'succeeded');
-                        break; // success
-                    } catch (apiError) {
-                        logger.warn(`API connection error (${apiError}), retry ${retryCount+1}/3`);
-                        // Wait before retry (exponential backoff)
-                        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
-                        // Last retry failed
-                        if (retryCount === 2) throw apiError;
-                        if (checkInterrupt()) break;
-                    }
+        for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
+            await this.checkCooldown();
+            if (current_msg_time !== this.most_recent_msg_time) {
+                return '';
+            }
+            let addIgnorePrompt = `
+            Response rules: 
+            1) You are in a realistic world. If you pick a fight and die, you die forever. Fear for your life.
+            2) Understand your given name. You must decide using provided context and human interaction rules whether someone is talking to you or not.
+            - You're being addressed (and MUST NOT respond with !ignore) if a user:
+            - Mentions you by name or nickname directly
+            - OR refers to "everyone," "everybody" or ANY collective term
+            - OR refers to "anyone near me" or "those around me" or similar proximity-based references
+            - OR continues a conversation where you were previously addressed
+            - IMPORTANT: ANY message directed at multiple entities automatically includes you unless explicitly stated otherwise
+            - If and ONLY if you are absolutely certain you are not being addressed (directly or indirectly), respond with !ignore and briefly explain why
+            3) You can address multiple people in your next message. If !ignore is in your response, your entire message will be discarded and not heard by anyone.
+            - Therefore, you may not use !ignore if there's any possibility the message includes you.
+            4) Do *NOT* include SYSTEM or Code output in your messages.
+            5) Do *NOT* use placehere by itself, only use it in newAction code
+            `;
+            let prompt = addIgnorePrompt + '\n' + this.profile.conversing;
+            prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+            try {
+                if (this.agent.bot.interrupt_code) {
+                    return '';
                 }
-                // Print how long the generation took
-                logger.info(`Generation took ${((new Date().getTime() - new Date(nowTime).getTime()) / 1000).toFixed(2)}s`);
-                // in conversations >2 players LLMs tend to hallucinate and role-play as other bots
-                // the FROM OTHER BOT tag should never be generated by the LLM
+                // let generation = await this.chat_model.sendRequest(messages, prompt);
+                // interrupt generation if an action is started
+                const interruptPromise = new Promise(resolve => {
+                    const checkInterval = setInterval(() => {
+                        const latestActionLabel = this.agent.actions.currentActionLabel; // Get latest value each time
+                        if (this.agent.bot.interrupt_code && 
+                            (this.existingActionLabel === null || (
+                            latestActionLabel &&
+                            latestActionLabel.startsWith('action') &&
+                            latestActionLabel !== this.existingActionLabel))) {
+                            logger.debug(`Generation interrupted by action: ${latestActionLabel}`);
+                            clearInterval(checkInterval);
+                            resolve('');
+                        }
+                    }, 1000);
+                    
+                    // Clean up interval remains the same
+                    setTimeout(() => {
+                        clearInterval(checkInterval);
+                    }, settings.gen_timeout * 1000);
+                });
+                
+                this.existingActionLabel = this.agent.actions.currentActionLabel; // Capture initial value
+                
+                // Race the API call against the interrupt checker
+                let generation = await Promise.race([
+                    this.chat_model.sendRequest(messages, prompt),
+                    interruptPromise
+                ]);
+                
+                // If we got an empty string, it means we were interrupted
+                if (generation === '' || generation.includes('My brain disconnected')) {
+                    return '';
+                }
+
                 if (generation.includes('(FROM OTHER BOT)')) {
-                    logger.warn('LLM hallucinated message as another bot. Trying again...');
+                    console.warn('LLM hallucinated message as another bot. Trying again...');
                     continue;
                 }
-                logger.debug('returning generation');
+                if (generation.includes('!ignore')) {
+                    logger.debug('!ignore detected in response, discarding.');
+                    return '';
+                }
                 return generation;
+            } catch (error) {
+                console.error('Error in promptConvo:', error.message);
+                continue; // try again
             }
-            return ''; // failed
-        } catch (outerError) {
-            console.error('[promptConvo] Outer error:', outerError);
-            return '';
-        } finally {
-            logger.debug('finally block, setting generatingPrompt to false');
-            this.generatingPrompt = false;
         }
+        return '';
     }
 
     async promptCoding(messages) {
