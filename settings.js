@@ -26,13 +26,18 @@ const settings = {
         // using more than 1 profile requires you to /msg each bot indivually
         // individual profiles override values from the base profile
     ],
-    "logLevel": 4, // ERROR=0, WARN=1, INFO=2, DEBUG=3, TRACE=4
+    "logLevel": 1, // ERROR=0, WARN=1, INFO=2, DEBUG=3, TRACE=4
     "load_memory": true, // load memory from previous session
     "init_message": "Respond with hello world and your name", // sends to all on spawn
     "only_chat_with": [], // users that the bots listen to and send general messages to. if empty it will chat publicly
-    "speak": true, // allows all bots to speak through system text-to-speech. works on windows, mac, on linux you need to `apt install espeak`
+    "speak": false, // allows all bots to speak through system text-to-speech. works on windows, mac, on linux you need to `apt install espeak`
     "language": "en", // translate to/from this language. Supports these language names: https://cloud.google.com/translate/docs/languages
+    
+    // WebSocket streaming settings
     "show_bot_views": false, // show bot's view in browser at localhost:3000, 3001...
+    "stream_bot_views": false, // enable streaming bot views over WebSocket
+    "stream_ws_url": "ws://localhost:8080", // WebSocket server URL to connect to
+    "stream_quality": 0.7, // JPEG quality for streamed frames (0-1)
 
     "allow_insecure_coding": true, // allows newAction command and model can write/run code on your computer. enable at own risk
     "allow_vision": false, // allows vision model to interpret screenshots as inputs

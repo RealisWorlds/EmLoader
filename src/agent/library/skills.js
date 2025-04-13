@@ -2009,3 +2009,82 @@ export async function digDown(bot, distance = 10) {
         return false;
     }
 }
+
+export async function goToGroundLevel(bot) {
+    log(bot, "Finding and moving to ground level...");
+    
+    // Get bot's current position
+    const pos = bot.entity.position.clone();
+    const startY = Math.floor(pos.y);
+    
+    // Define scan area
+    const scanRadius = 2; // Creates a 4x4 area
+    const maxHeight = 10; // How far up to scan
+    const requiredAirHeight = 10; // How many blocks of clear air we need
+    
+    // Track the best candidate location for ground level
+    let groundLevel = null;
+    let bestPath = Infinity;
+    
+    // Scan in a grid around the player
+    for (let dx = -scanRadius; dx <= scanRadius; dx++) {
+        for (let dz = -scanRadius; dz <= scanRadius; dz++) {
+            const x = Math.floor(pos.x) + dx;
+            const z = Math.floor(pos.z) + dz;
+            if (checkInterrupt(bot)) return false;
+            // Start scanning from player's position upward
+            let y = startY;
+            while (y < startY + maxHeight) {
+                // Check if we have enough continuous air blocks
+                let airCount = 0;
+                for (let i = 0; i < requiredAirHeight; i++) {
+                    const block = bot.blockAt(new Vec3(x, y + i, z));
+                    if (!block || bot.blockIsPassable(block)) {
+                        airCount++;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // If we found continuous air, check what's below
+                if (airCount === requiredAirHeight) {
+                    // Make sure there's a solid block below to stand on
+                    const blockBelow = bot.blockAt(new Vec3(x, y - 1, z));
+                    if (blockBelow && !bot.blockIsPassable(blockBelow)) {
+                        // This is a candidate ground level position
+                        const candidatePos = new Vec3(x, y, z);
+                        const pathLength = candidatePos.distanceTo(pos);
+                        
+                        // Keep track of the closest valid ground position
+                        if (pathLength < bestPath) {
+                            groundLevel = candidatePos;
+                            bestPath = pathLength;
+                        }
+                        break; // Found a spot in this column, move to next column
+                    }
+                }
+                y++;
+            }
+        }
+    }
+    
+    // If we found a valid ground level, go there
+    if (groundLevel) {
+        log(bot, `Found ground level at ${groundLevel.x.toFixed(1)}, ${groundLevel.y.toFixed(1)}, ${groundLevel.z.toFixed(1)}`);
+        
+        bot.pathfinder.setMovements(new pf.Movements(bot));
+        const goal = new pf.goals.GoalNear(groundLevel.x, groundLevel.y, groundLevel.z, 0);
+        
+        try {
+            await gotoInterruptible(bot, goal);
+            log(bot, "Reached ground level.");
+            return true;
+        } catch (err) {
+            log(bot, `Failed to reach ground level: ${err.message}`);
+            return false;
+        }
+    } else {
+        log(bot, "Could not find a path to ground level.");
+        return false;
+    }
+}

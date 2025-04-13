@@ -380,8 +380,7 @@ export const actionsList = [
             'selfPrompt': { type: 'string', description: 'The goal prompt.' },
         },
         perform: async function (agent, prompt) {
-			let goalResp = agent.self_prompter.start(prompt);
-            return !goalResp ? 'Bot in convo, self_prompter paused' : goalResp;
+            return agent.self_prompter.start(prompt);
         }
     },
     {

@@ -305,28 +305,34 @@ export class Prompter {
     async checkCooldown() {
         let elapsed = Date.now() - this.last_prompt_time;
         if (elapsed < this.cooldown && this.cooldown > 0) {
-            await new Promise(r => setTimeout(r, this.cooldown - elapsed));
+            await new Promise(r => setTimeout(r, Math.min(this.cooldown,3000) - elapsed));
         }
         this.last_prompt_time = Date.now();
     }
 
     generatingPrompt = false;
 
+    // Modified promptConvo method for Prompter class
     async promptConvo(messages) {
         this.most_recent_msg_time = Date.now();
         let current_msg_time = this.most_recent_msg_time;
+        
+        // This occurs when a message comes in after this function is already running
+        if (current_msg_time !== this.most_recent_msg_time || this.generatingPrompt) {
+            return '';
+        }
+        
         logger.debug('Prompting conversation...');
         this.generatingPrompt = true;
         logger.debug('set generatingPrompt to true');
+        
         const checkInterrupt = () => this.agent.bot.interrupt_code || this.agent.shut_up;
+        
         try {
             for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
                 if (checkInterrupt()) break;
                 logger.debug('try', i + 1, 'of 3');
                 await this.checkCooldown();
-                if (current_msg_time !== this.most_recent_msg_time) {
-                    return '';
-                }
                 logger.debug('checked cooldown');
                 let addIgnorePrompt = `
                 Response rules: 
@@ -339,7 +345,7 @@ export class Prompter {
                 - OR continues a conversation where you were previously addressed
                 - IMPORTANT: ANY message directed at multiple entities automatically includes you unless explicitly stated otherwise
                 - If and ONLY if you are absolutely certain you are not being addressed (directly or indirectly), respond with !ignore and briefly explain why
-                3) You only get one response to this context. You can respond to multiple people in this message if they are talking to you and if you have not already replied to them. If !ignore is in your response, your entire message will be discarded and not heard by anyone.
+                3) You should address anyone that is talking to you in your next message. If !ignore is in your response, your entire message will be discarded and not heard by anyone.
                 - Therefore, you may not use !ignore if there's any possibility the message includes you.
                 `;
                 let prompt = addIgnorePrompt + '\n' + this.profile.conversing;
@@ -355,8 +361,6 @@ export class Prompter {
                     try {
                         if (checkInterrupt()) break;
                         logger.debug('starting API request retry', retryCount + 1);
-                        // logger.debug('prompt:', prompt);
-                        // logger.debug('messages:', messages);
                         generation = await this.chat_model.sendRequest(messages, prompt);
                         logger.debug('API request retry', retryCount + 1, 'succeeded');
                         break; // success
@@ -377,10 +381,6 @@ export class Prompter {
                     logger.warn('LLM hallucinated message as another bot. Trying again...');
                     continue;
                 }
-                // if (current_msg_time !== this.most_recent_msg_time) {
-                //     console.warn(this.agent.name + ' received new message while generating, discarding old response.');
-                //     return '';
-                // }
                 logger.debug('returning generation');
                 return generation;
             }
@@ -389,7 +389,7 @@ export class Prompter {
             console.error('[promptConvo] Outer error:', outerError);
             return '';
         } finally {
-            logger.debug('finally block #2, setting generatingPrompt to false');
+            logger.debug('finally block, setting generatingPrompt to false');
             this.generatingPrompt = false;
         }
     }
