@@ -225,7 +225,7 @@ async handleMessage(source, message, max_responses=null, awaitResponse=false) {
             this._batchedMessageCount = 0;
             this._batchRetryCount = 0;
             this._batchProcessingTimeout = null;
-            this._maxBatchSize = this.settings.max_messages; //10;
+            this._maxBatchSize = settings.max_messages; //10;
             this._batchCollectionTime = 3000;
         }
         
