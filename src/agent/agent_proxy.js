@@ -1,7 +1,6 @@
 import { io } from 'socket.io-client';
 import convoManager from './conversation.js';
 import settings from '../../settings.js';
-import { logger } from '../utils/logger.js';
 
 class AgentServerProxy {
     constructor() {
@@ -23,11 +22,11 @@ class AgentServerProxy {
         this.connected = true;
 
         this.socket.on('connect', () => {
-            logger.debug('Connected to MindServer');
+            console.log('Connected to MindServer');
         });
 
         this.socket.on('disconnect', () => {
-            logger.debug('Disconnected from MindServer');
+            console.log('Disconnected from MindServer');
             this.connected = false;
         });
 
@@ -36,7 +35,7 @@ class AgentServerProxy {
         });
 
         this.socket.on('restart-agent', (agentName) => {
-            logger.debug(`Restarting agent: ${agentName}`);
+            console.log(`Restarting agent: ${agentName}`);
             this.agent.cleanKill();
         });
     }

@@ -10,11 +10,7 @@ start /MIN cmd /k "node main.js --profiles ./profiles/Becky.json"
 timeout /t 2
 start /MIN cmd /k "node main.js --profiles ./profiles/Bella.json"
 timeout /t 2
-start /MIN cmd /k "node main.js --profiles ./profiles/BrotherMalachai.json"
-timeout /t 2
 start /MIN cmd /k "node main.js --profiles ./profiles/bumblesMcGee.json"
-timeout /t 2
-start /MIN cmd /k "node main.js --profiles ./profiles/GraysonThorne.json"
 timeout /t 2
 start /MIN cmd /k "node main.js --profiles ./profiles/JerryJohnson.json"
 timeout /t 2
@@ -27,12 +23,6 @@ timeout /t 2
 start /MIN cmd /k "node main.js --profiles ./profiles/Sammy.json"
 timeout /t 2
 start /MIN cmd /k "node main.js --profiles ./profiles/Sebastianleaf.json"
-timeout /t 2
-start /MIN cmd /k "node main.js --profiles ./profiles/Sunny.json"
-timeout /t 2
-start /MIN cmd /k "node main.js --profiles ./profiles/ThorneBlackheart.json"
-timeout /t 2
-start /MIN cmd /k "node main.js --profiles ./profiles/VerityVeil.json"
 timeout /t 2
 start /MIN cmd /k "node main.js --profiles ./profiles/Elon.json"
 timeout /t 2

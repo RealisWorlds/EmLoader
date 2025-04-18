@@ -2,7 +2,6 @@ import * as skills from './library/skills.js';
 import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
 import settings from '../../settings.js'
-import { logger } from '../utils/logger.js';
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
@@ -30,7 +29,6 @@ const modes_list = [
         active: false,
         fall_blocks: ['sand', 'gravel', 'concrete_powder'], // includes matching substrings like 'sandstone' and 'red_sand'
         update: async function (agent) {
-            try {
             const bot = agent.bot;
             let block = bot.blockAt(bot.entity.position);
             let blockAbove = bot.blockAt(bot.entity.position.offset(0, 1, 0));
@@ -71,13 +69,6 @@ const modes_list = [
             else if (agent.isIdle()) {
                 bot.clearControlStates(); // clear jump if not in danger or doing anything else
             }
-            } catch (error) {
-                console.error('Error in self_preservation mode:', error);
-                if (bot.interrupt_code) {
-                    log(bot, `Interrupted while self preserving.`);
-                    return false;
-                }
-            }
         }
     },
     {
@@ -93,39 +84,35 @@ const modes_list = [
         max_stuck_time: 20,
         prev_dig_block: null,
         update: async function (agent) {
-        	try {	
-	            if (agent.isIdle()) { 
-	                this.prev_location = null;
-	                this.stuck_time = 0;
-	                return; // don't get stuck when idle
-	            }
-	            const bot = agent.bot;
-	            const cur_dig_block = bot.targetDigBlock;
-	            if (cur_dig_block && !this.prev_dig_block) {
-	                this.prev_dig_block = cur_dig_block;
-	            }
-	            if (this.prev_location && this.prev_location.distanceTo(bot.entity.position) < this.distance && cur_dig_block == this.prev_dig_block) {
-	                this.stuck_time += (Date.now() - this.last_time) / 1000;
-	            }
-	            else {
-	                this.prev_location = bot.entity.position.clone();
-	                this.stuck_time = 0;
-	                this.prev_dig_block = null;
-	            }
-	            if (this.stuck_time > this.max_stuck_time) {
-	                say(agent, 'I\'m stuck!');
-	                this.stuck_time = 0;
-	                execute(this, agent, async () => {
-	                    const crashTimeout = setTimeout(() => { agent.cleanKill("Got stuck and couldn't get unstuck") }, 10000);
-	                    await skills.moveAway(bot, 5);
-	                    clearTimeout(crashTimeout);
-	                    say(agent, 'I\'m free.');
-	                });
-	            }
-	            this.last_time = Date.now();
-	        } catch (err) { 
-                console.error('Error in unstuck mode:', err); 
-			}
+            if (agent.isIdle()) { 
+                this.prev_location = null;
+                this.stuck_time = 0;
+                return; // don't get stuck when idle
+            }
+            const bot = agent.bot;
+            const cur_dig_block = bot.targetDigBlock;
+            if (cur_dig_block && !this.prev_dig_block) {
+                this.prev_dig_block = cur_dig_block;
+            }
+            if (this.prev_location && this.prev_location.distanceTo(bot.entity.position) < this.distance && cur_dig_block == this.prev_dig_block) {
+                this.stuck_time += (Date.now() - this.last_time) / 1000;
+            }
+            else {
+                this.prev_location = bot.entity.position.clone();
+                this.stuck_time = 0;
+                this.prev_dig_block = null;
+            }
+            if (this.stuck_time > this.max_stuck_time) {
+                say(agent, 'I\'m stuck!');
+                this.stuck_time = 0;
+                execute(this, agent, async () => {
+                    const crashTimeout = setTimeout(() => { agent.cleanKill("Got stuck and couldn't get unstuck") }, 10000);
+                    await skills.moveAway(bot, 5);
+                    clearTimeout(crashTimeout);
+                    say(agent, 'I\'m free.');
+                });
+            }
+            this.last_time = Date.now();
         }
     },
     {
@@ -220,11 +207,10 @@ const modes_list = [
                 if (Date.now() - this.last_place < this.cooldown * 1000) return;
                 execute(this, agent, async () => {
                     const pos = agent.bot.entity.position;
-                    return await skills.placeBlock(agent.bot, 'torch', pos.x, pos.y, pos.z, 'bottom', true);
+                    await skills.placeBlock(agent.bot, 'torch', pos.x, pos.y, pos.z, 'bottom', true);
                 });
                 this.last_place = Date.now();
             }
-            return false;
         }
     },
     {
@@ -237,16 +223,15 @@ const modes_list = [
         update: async function (agent) {
             const player = world.getNearestEntityWhere(agent.bot, entity => entity.type === 'player', this.distance);
             if (player) {
-                return await execute(this, agent, async () => {
+                execute(this, agent, async () => {
                     // wait a random amount of time to avoid identical movements with other bots
                     const wait_time = Math.random() * 1000;
                     await new Promise(resolve => setTimeout(resolve, wait_time));
                     if (player.position.distanceTo(agent.bot.entity.position) < this.distance) {
-                        return await skills.moveAway(agent.bot, this.distance);
+                        await skills.moveAway(agent.bot, this.distance);
                     }
                 });
             }
-            return false;
         }
     },
     {
@@ -306,14 +291,14 @@ async function execute(mode, agent, func, timeout=-1) {
             await func();
         }, { timeout });
         mode.active = false;
-        logger.debug(`Mode ${mode.name} finished executing, code_return: ${code_return.message}`);
-	
+        console.log(`Mode ${mode.name} finished executing, code_return: ${code_return.message}`);
+
         let should_reprompt = 
             interrupted_action && // it interrupted a previous action
             !agent.actions.resume_func && // there is no resume function
             !agent.self_prompter.isActive() && // self prompting is not on
             !code_return.interrupted; // this mode action was not interrupted by something else
-	
+
         if (should_reprompt) {
             // auto prompt to respond to the interruption
             let role = 'system';
@@ -325,6 +310,7 @@ async function execute(mode, agent, func, timeout=-1) {
         console.error(`Error executing mode ${mode.name}:`, error);
     }
 }
+
 
 let _agent = null;
 const modes_map = {};
@@ -365,7 +351,7 @@ class ModeController {
 
     unPauseAll() {
         for (let mode of modes_list) {
-            if (mode.paused) logger.debug(`Unpausing mode ${mode.name}`);
+            if (mode.paused) console.log(`Unpausing mode ${mode.name}`);
             mode.paused = false;
         }
     }

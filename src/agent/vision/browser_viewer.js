@@ -1,92 +1,63 @@
-import settings from '../../../settings.js';
 import prismarineViewer from 'prismarine-viewer';
-import WebSocket from 'ws';
+import { createCanvas } from 'node-canvas-webgl';
+import settings from '../../../settings.js';
 
-const mineflayerViewer = prismarineViewer.mineflayer;
-
-// Track active WebSocket connections for cleanup
-const activeConnections = new Map();
+// Required for headless rendering
+globalThis.createCanvas = createCanvas;
 
 export function addBrowserViewer(bot, count_id) {
-    if (settings.show_bot_views) {
-        // Default options for viewer
-        const viewerOptions = { 
-            port: 3000+count_id, 
-            firstPerson: true, 
-            frames: 60, 
-            viewDistance: 12
-        };
-        
-        // Add WebSocket streaming if enabled
-        if (settings.stream_bot_views) {
-            let wsClient = null;
-            
-            // Connect to WebSocket server
-            try {
-                wsClient = new WebSocket(settings.stream_ws_url || 'ws://localhost:8080');
-                
-                // Store connection for cleanup
-                activeConnections.set(bot.username, wsClient);
-                
-                wsClient.on('open', () => {
-                    console.log(`WebSocket connection established for bot ${bot.username}`);
-                    
-                    // Send bot info for identification
-                    wsClient.send(JSON.stringify({
-                        type: 'bot_info',
-                        username: bot.username,
-                        id: count_id
-                    }));
-                });
-                
-                wsClient.on('error', (err) => {
-                    console.error(`WebSocket error for bot ${bot.username}:`, err);
-                });
-                
-                wsClient.on('close', () => {
-                    console.log(`WebSocket connection closed for bot ${bot.username}`);
-                    activeConnections.delete(bot.username);
-                });
-                
-                // Setup frame capture
-                viewerOptions.onFrame = (canvas) => {
-                    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
-                        // Convert canvas to binary data
-                        canvas.toBuffer((err, buf) => {
-                            if (!err) {
-                                wsClient.send(buf);
-                            }
-                        }, 'image/jpeg', { 
-                            quality: settings.stream_quality || 0.7 
-                        });
-                    }
-                };
-                
-                // Cleanup on bot end
-                bot.on('end', () => {
-                    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
-                        wsClient.close();
-                        activeConnections.delete(bot.username);
-                    }
-                });
-            } catch (err) {
-                console.error(`Failed to initialize WebSocket for bot ${bot.username}:`, err);
-            }
-        }
-        
-        // Initialize the viewer with our options
-        return mineflayerViewer(bot, viewerOptions);
+    if (!settings.show_bot_views) return;
+  
+    // Set up global error handler for uncaught exceptions related to this connection
+    const errorHandler = (err) => {
+      if (err.code === 'ECONNREFUSED' && err.port === (settings.viewer_stream_port || 8089 + count_id)) {
+        console.error(`Connection refused for headless viewer (bot ${bot.username}):`, err);
+        // Remove this handler after catching the specific error
+        process.removeListener('uncaughtException', errorHandler);
+      }
+    };
+  
+    // Add temporary global error handler
+    process.on('uncaughtException', errorHandler);
+  
+    try {
+      const { headless } = prismarineViewer; // ESM-compatible default import destructuring
+      
+      // Check if headless is defined before trying to use it
+      if (!headless) {
+        throw new Error('Headless viewer not available in prismarineViewer');
+      }
+      
+      // Start headless viewer
+      const viewer = headless(bot, {
+        width: 1024,
+        height: 768,
+        viewDistance: 12,
+        firstPerson: true,
+        frames: -1,
+        framesLimit: 1000,
+        output: `127.0.0.1:${settings.viewer_stream_port || 8089 + count_id}` // optional per-bot port
+      });
+      
+      // If we got a viewer instance back, we can set up error handlers on it
+      if (viewer && typeof viewer.on === 'function') {
+        viewer.on('error', (error) => {
+          console.error(`Viewer listener offline for bot: ${bot.username}`);
+          // Clean up global handler if viewer has its own error handling
+          process.removeListener('uncaughtException', errorHandler);
+        });
+      }
+      
+      console.log(`Headless viewer started for bot ${bot.username} on port ${settings.viewer_stream_port || 8089 + count_id}`);
+      
+      // Set a timeout to remove the global handler if no error occurs within a reasonable time
+      setTimeout(() => {
+        process.removeListener('uncaughtException', errorHandler);
+      }, 10000); // 10 second timeout
+      
+    } catch (error) {
+      console.error(`Failed to start headless viewer for bot ${bot.username}:`, error);
+      // Clean up global handler on caught errors
+      process.removeListener('uncaughtException', errorHandler);
     }
-    return null;
-}
-
-// Helper to close all active connections
-export function closeAllConnections() {
-    for (const [botName, conn] of activeConnections.entries()) {
-        if (conn.readyState === WebSocket.OPEN) {
-            console.log(`Closing WebSocket connection for bot ${botName}`);
-            conn.close();
-        }
-    }
-    activeConnections.clear();
-}
+  }

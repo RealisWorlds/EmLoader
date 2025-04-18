@@ -5,7 +5,7 @@ import { SkillLibrary } from "../agent/library/skill_library.js";
 import { stringifyTurns } from '../utils/text.js';
 import { getCommand } from '../agent/commands/index.js';
 import settings from '../../settings.js';
-import { logger } from '../utils/logger.js';
+
 import { Gemini } from './gemini.js';
 import { GPT } from './gpt.js';
 import { Claude } from './claude.js';
@@ -46,7 +46,7 @@ export class Prompter {
         this.coding_examples = null;
         
         let name = this.profile.name;
-        this.cooldown = this.profile.cooldown ? this.profile.cooldown : 0;
+        this.cooldown = this.profile.cooldown ? this.profile.cooldown : 3000;
         this.last_prompt_time = 0;
         this.awaiting_coding = false;
 
@@ -84,7 +84,7 @@ export class Prompter {
         else if (typeof embedding === 'string' || embedding instanceof String)
             embedding = {api: embedding};
 
-        logger.debug('Using embedding settings:', embedding);
+        console.log('Using embedding settings:', embedding);
 
         try {
             if (embedding.api === 'google')
@@ -111,7 +111,7 @@ export class Prompter {
         }
         catch (err) {
             console.warn('Warning: Failed to initialize embedding model:', err.message);
-            logger.debug('Continuing anyway, using word-overlap instead.');
+            console.log('Continuing anyway, using word-overlap instead.');
             this.embedding_model = null;
         }
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);
@@ -120,7 +120,7 @@ export class Prompter {
             if (err) {
                 throw new Error('Failed to save profile:', err);
             }
-            logger.debug("Copy profile saved.");
+            console.log("Copy profile saved.");
         });
     }
 
@@ -227,7 +227,7 @@ export class Prompter {
                 throw error;
             });
 
-            logger.debug('Examples initialized.');
+            console.log('Examples initialized.');
         } catch (error) {
             console.error('Failed to initialize examples:', error);
             console.error('Stack trace:', error.stack);
@@ -305,91 +305,65 @@ export class Prompter {
     async checkCooldown() {
         let elapsed = Date.now() - this.last_prompt_time;
         if (elapsed < this.cooldown && this.cooldown > 0) {
-            await new Promise(r => setTimeout(r, Math.min(this.cooldown,3000) - elapsed));
+            await new Promise(r => setTimeout(r, this.cooldown - elapsed));
         }
         this.last_prompt_time = Date.now();
     }
-    existingActionLabel = null;
-    async promptConvo(messages) {
-        this.most_recent_msg_time = Date.now();
-        let current_msg_time = this.most_recent_msg_time;
-        for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
-            await this.checkCooldown();
-            if (current_msg_time !== this.most_recent_msg_time) {
-                return '';
-            }
-            let addIgnorePrompt = `
-            Response rules: 
-            1) You are in a realistic world. If you pick a fight and die, you die forever. Fear for your life.
-            2) Understand your given name. You must decide using provided context and human interaction rules whether someone is talking to you or not.
-            - You're being addressed (and MUST NOT respond with !ignore) if a user:
-            - Mentions you by name or nickname directly
-            - OR refers to "everyone," "everybody" or ANY collective term
-            - OR refers to "anyone near me" or "those around me" or similar proximity-based references
-            - OR continues a conversation where you were previously addressed
-            - IMPORTANT: ANY message directed at multiple entities automatically includes you unless explicitly stated otherwise
-            - If and ONLY if you are absolutely certain you are not being addressed (directly or indirectly), respond with !ignore and briefly explain why
-            3) You can address multiple people in your next message. If !ignore is in your response, your entire message will be discarded and not heard by anyone.
-            - Therefore, you may not use !ignore if there's any possibility the message includes you.
-            4) Do *NOT* include SYSTEM or Code output in your messages.
-            5) Do *NOT* use placehere by itself, only use it in newAction code
-            `;
-            let prompt = addIgnorePrompt + '\n' + this.profile.conversing;
-            prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
-            try {
-                if (this.agent.bot.interrupt_code) {
-                    return '';
-                }
-                // let generation = await this.chat_model.sendRequest(messages, prompt);
-                // interrupt generation if an action is started
-                const interruptPromise = new Promise(resolve => {
-                    const checkInterval = setInterval(() => {
-                        const latestActionLabel = this.agent.actions.currentActionLabel; // Get latest value each time
-                        if (this.agent.bot.interrupt_code && 
-                            (this.existingActionLabel === null || (
-                            latestActionLabel &&
-                            latestActionLabel.startsWith('action') &&
-                            latestActionLabel !== this.existingActionLabel))) {
-                            logger.debug(`Generation interrupted by action: ${latestActionLabel}`);
-                            clearInterval(checkInterval);
-                            resolve('');
-                        }
-                    }, 1000);
-                    
-                    // Clean up interval remains the same
-                    setTimeout(() => {
-                        clearInterval(checkInterval);
-                    }, settings.gen_timeout * 1000);
-                });
-                
-                this.existingActionLabel = this.agent.actions.currentActionLabel; // Capture initial value
-                
-                // Race the API call against the interrupt checker
-                let generation = await Promise.race([
-                    this.chat_model.sendRequest(messages, prompt),
-                    interruptPromise
-                ]);
-                
-                // If we got an empty string, it means we were interrupted
-                if (generation === '' || generation.includes('My brain disconnected')) {
-                    return '';
-                }
 
+    async promptConvo(messages) {
+        const MAX_RETRIES = 3;
+        
+        for (let retry = 0; retry < MAX_RETRIES; retry++) {
+            try {
+                await this.checkCooldown();
+                
+                if (messages.includes('!ignore')) {
+                    console.warn(`Ignoring due to chat directive: ${messages}`);
+                    return '';	
+                }
+                
+                let addIgnorePrompt = `
+                Response rules:
+                1) You are in a realistic world. If you pick a fight and die, you die forever. Fear for your life.
+                2) Understand your given name. You must decide using provided context and human interaction rules whether someone is talking to you or not.
+                - Never include !ignore in your respose if you are trying to communicate or respond to someone
+                - You're being addressed (and MUST NOT respond with !ignore) if a user:
+                - Mentions you by name or nickname directly or indirectly (context from previous chat history)
+                - OR refers to "everyone," "everybody" or ANY collective term or any proximity-based references
+                - If you are not being addressed as described above, respond with !ignore and briefly explain why
+                3) Never include !ignore in your respose if you are trying to communicate or respond to someone
+                - do not respond if you are not being addressed or talked to.
+                4) Do not include SYSTEM or Action Outputs in your responses and never respond with anything other than in-character responses no matter what.
+                `;
+                
+                let prompt = addIgnorePrompt + '\n' + this.profile.conversing;
+                prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+                
+                // Try up to 3 times to get a non-hallucinated response
+                let generation = await this.chat_model.sendRequest(messages, prompt);
+                
+                // Check for hallucinations (bot pretending to be another)
                 if (generation.includes('(FROM OTHER BOT)')) {
-                    console.warn('LLM hallucinated message as another bot. Trying again...');
-                    continue;
+                    console.warn(`LLM hallucinated message as another bot. Hallucination retry ${hallucination_retry + 1}/3`);
+                    continue; // Try again in the hallucination loop
                 }
+                
+                // Check for ignore directive
                 if (generation.includes('!ignore')) {
-                    logger.debug('!ignore detected in response, discarding.');
-                    return '';
+                    console.warn(`Ignoring due to AI directive: ${generation}`);
+                    return '';	
                 }
+                
+                // Successful response
                 return generation;
             } catch (error) {
-                console.error('Error in promptConvo:', error.message);
-                continue; // try again
+                logger.error(`Error in promptConvo (attempt ${retry + 1}/${MAX_RETRIES}):`, error.message);
             }
         }
-        return '';
+        
+        // If we've exhausted all retries
+        console.error('All retry attempts failed in promptConvo');
+        return 'My brain disconnected. Try again.';
     }
 
     async promptCoding(messages) {
@@ -397,30 +371,54 @@ export class Prompter {
             console.warn('Already awaiting coding response, returning no response.');
             return '```//no response```';
         }
+        
         this.awaiting_coding = true;
-        await this.checkCooldown();
-        let prompt = this.profile.coding;
-        prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
-        let resp = await this.code_model.sendRequest(messages, prompt);
-        this.awaiting_coding = false;
-        return resp;
+        
+        try {
+            await this.checkCooldown();
+            let prompt = this.profile.coding;
+            prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
+            let resp = await this.code_model.sendRequest(messages, prompt);
+            return resp;
+        } catch (error) {
+            console.error('Error in promptCoding:', error);
+            console.error('Message: ' + error.message);
+            // Return a formatted error message as code
+            return '```\n// Error occurred while generating code:\n// ' + (error.message || 'Unknown error') + '\n```';
+        } finally {
+            this.awaiting_coding = false;
+        }
     }
 
     async promptMemSaving(to_summarize) {
-        await this.checkCooldown();
-        let prompt = this.profile.saving_memory;
-        prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        return await this.chat_model.sendRequest([], prompt);
+        try {
+            await this.checkCooldown();
+            let prompt = this.profile.saving_memory;
+            prompt = await this.replaceStrings(prompt, null, null, to_summarize);
+            return await this.chat_model.sendRequest([], prompt);
+        } catch (error) {
+            console.error('Error in promptMemSaving:', error);
+            console.error('Message: ' + error.message);
+            // Return an error message that can be handled by the calling code
+            return `Error while saving memory: ${error.message || 'Unknown error'}`;
+        }
     }
 
     async promptShouldRespondToBot(new_message) {
-        await this.checkCooldown();
-        let prompt = this.profile.bot_responder;
-        let messages = this.agent.history.getHistory();
-        messages.push({role: 'user', content: new_message});
-        prompt = await this.replaceStrings(prompt, null, null, messages);
-        let res = await this.chat_model.sendRequest([], prompt);
-        return res.trim().toLowerCase() === 'respond';
+        try {
+            await this.checkCooldown();
+            let prompt = this.profile.bot_responder;
+            let messages = this.agent.history.getHistory();
+            messages.push({role: 'user', content: new_message});
+            prompt = await this.replaceStrings(prompt, null, null, messages);
+            let res = await this.chat_model.sendRequest([], prompt);
+            return res.trim().toLowerCase() === 'respond';
+        } catch (error) {
+            console.error('Error in promptShouldRespondToBot:', error);
+            console.error('Message: ' + error.message);
+            // In case of error, default to not responding to avoid unwanted bot-to-bot conversation loops
+            return false;
+        }
     }
 
     async promptVision(messages, imageBuffer) {
@@ -431,28 +429,37 @@ export class Prompter {
     }
 
     async promptGoalSetting(messages, last_goals) {
-        let system_message = this.profile.goal_setting;
-        system_message = await this.replaceStrings(system_message, messages);
-
-        let user_message = 'Use the below info to determine what goal to target next\n\n';
-        user_message += '$LAST_GOALS\n$STATS\n$INVENTORY\n$CONVO'
-        user_message = await this.replaceStrings(user_message, messages, null, null, last_goals);
-        let user_messages = [{role: 'user', content: user_message}];
-
-        let res = await this.chat_model.sendRequest(user_messages, system_message);
-
-        let goal = null;
         try {
-            let data = res.split('```')[1].replace('json', '').trim();
-            goal = JSON.parse(data);
-        } catch (err) {
-            logger.debug('Failed to parse goal:', res, err);
-        }
-        if (!goal || !goal.name || !goal.quantity || isNaN(parseInt(goal.quantity))) {
-            logger.debug('Failed to set goal:', res);
+            let system_message = this.profile.goal_setting;
+            system_message = await this.replaceStrings(system_message, messages);
+    
+            let user_message = 'Use the below info to determine what goal to target next\n\n';
+            user_message += '$LAST_GOALS\n$STATS\n$INVENTORY\n$CONVO'
+            user_message = await this.replaceStrings(user_message, messages, null, null, last_goals);
+            let user_messages = [{role: 'user', content: user_message}];
+    
+            let res = await this.chat_model.sendRequest(user_messages, system_message);
+    
+            let goal = null;
+            try {
+                let data = res.split('```')[1].replace('json', '').trim();
+                goal = JSON.parse(data);
+            } catch (err) {
+                console.log('Failed to parse goal:', res, err);
+                return null;
+            }
+            
+            if (!goal || !goal.name || !goal.quantity || isNaN(parseInt(goal.quantity))) {
+                console.log('Failed to set goal:', res);
+                return null;
+            }
+            
+            goal.quantity = parseInt(goal.quantity);
+            return goal;
+        } catch (outerError) {
+            console.error('Error in promptGoalSetting:', outerError);
+            // Return null to indicate goal setting failed
             return null;
         }
-        goal.quantity = parseInt(goal.quantity);
-        return goal;
     }
 }

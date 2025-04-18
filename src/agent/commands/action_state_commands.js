@@ -1,9 +1,6 @@
 import { ActionStateManager } from '../action_state_manager.js';
 import settings from '../../../settings.js';
-import pf from 'mineflayer-pathfinder';
-import Vec3 from 'vec3';
 import * as skills from '../library/skills.js';
-import { logger } from '../../utils/logger.js';
 // Map to store action state managers for each agent
 const stateManagerCache = new Map();
 
@@ -42,29 +39,13 @@ export const actionStateCommands = [
                     } else {
                         return `No saved state found for action '${actionName}'. No saved actions available.`;
                     }
-                }
-                
+                }               
                 // Store the state in the action manager for reference
                 agent.actions.savedActionState = state;
                 
                 if (!state.mainFn) {
                     return `Cannot resume action '${actionName}': Unable to recover the execution function. The code file may have been deleted or is not accessible.`;
                 }
-                try {
-                    logger.debug("going to resume position...");
-                    const positionVec = new Vec3(state.position.x, state.position.y, state.position.z);
-                    await skills.goToPosition(agent.bot, positionVec.x, positionVec.y, positionVec.z, 0);
-                    if (agent.bot.entity.position.distanceTo(positionVec) > 1) {
-                        skills.log(agent.bot, `Failed to move to resume position: ${agent.bot.entity.position.distanceTo(positionVec)}`);
-                        return `Failed to move to resume position: ${agent.bot.entity.position.distanceTo(positionVec)}`;
-                    }
-                    await agent.bot.lookAt(positionVec);
-                } catch (error) {
-                    console.error('Error moving to position:', error);
-                    agent.bot.output += 'Error moving to position at resume start: ' + error.message + '\r\n';
-                    return `Error moving to position: ${error.message}`;
-                }
-                
                 const result = await agent.actions.runAction(state.actionName, state.mainFn, { timeout: settings.code_timeout_mins, resume: true });
                 return result.message;
             } catch (error) {

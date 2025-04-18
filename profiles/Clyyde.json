@@ -22,7 +22,7 @@
     "do_set_goal": true,
     "goals": []
   },
-  "cooldown": 10000,
+  "cooldown": 3000,
   "conversation_examples": [
     [
       {

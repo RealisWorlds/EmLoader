@@ -1,7 +1,6 @@
 import { cosineSimilarity } from '../../utils/math.js';
 import { getSkillDocs } from './index.js';
 import { wordOverlapScore } from '../../utils/text.js';
-import { logger } from '../../utils/logger.js';
 
 export class SkillLibrary {
     constructor(agent,embedding_model) {
@@ -85,7 +84,7 @@ export class SkillLibrary {
         let relevant_skill_docs = '#### RELEVANT CODE DOCS ###\nThe following functions are available to use:\n';
         relevant_skill_docs += Array.from(selected_docs).join('\n### ');
 
-        logger.debug('Selected skill docs:', Array.from(selected_docs).map(doc => {
+        console.log('Selected skill docs:', Array.from(selected_docs).map(doc => {
             const first_line_break = doc.indexOf('\n');
             return first_line_break > 0 ? doc.substring(0, first_line_break) : doc;
         }));

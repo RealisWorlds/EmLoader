@@ -28,33 +28,14 @@ export function blacklistCommands(commands) {
     }
 }
 
-const commandRegex = /!(\w+)(?:\(((?:-?\d+(?:\.\d+)?|true|false|"[^"]*"|'[^']*')(?:\s*,\s*(?:-?\d+(?:\.\d+)?|true|false|"[^"]*"|'[^']*'))*)\))?/
-const argRegex = /-?\d+(?:\.\d+)?|true|false|"[^"]*"|'[^']*'/g;
+const commandRegex = /!(\w+)(?:\(((?:-?\d+(?:\.\d+)?|[tT]rue|[fF]alse|"[^"]*"|'[^']*')(?:\s*,\s*(?:-?\d+(?:\.\d+)?|[tT]rue|[fF]alse|"[^"]*"|'[^']*'))*)\))?/
+const argRegex = /-?\d+(?:\.\d+)?|[tT]rue|[fF]alse|"[^"]*"|'[^']*'/g;
 
 export function containsCommand(message) {
-    // More robust command detection
-    const lines = message.split('\n');
-    for (const line of lines) {
-        const commandMatch = line.match(commandRegex);
-        if (commandMatch) {
-            return "!" + commandMatch[1];
-        }
-    }
+    const commandMatch = message.match(commandRegex);
+    if (commandMatch)
+        return "!" + commandMatch[1];
     return null;
-}
-
-export function truncCommandMessage(message) {
-    const lines = message.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-        const commandMatch = lines[i].match(commandRegex);
-        if (commandMatch) {
-            // Return everything up to and including the command
-            return lines.slice(0, i).join('\n') + 
-                   (i > 0 ? '\n' : '') + 
-                   lines[i].substring(0, commandMatch.index + commandMatch[0].length);
-        }
-    }
-    return message;
 }
 
 export function commandExists(commandName) {
@@ -204,6 +185,14 @@ export function parseCommandMessage(message) {
     return { commandName, args: parsedArgs };
 }
 
+export function truncCommandMessage(message) {
+    const commandMatch = message.match(commandRegex);
+    if (commandMatch) {
+        return message.substring(0, commandMatch.index + commandMatch[0].length);
+    }
+    return message;
+}
+
 export function isAction(name) {
     return actionsList.find(action => action.name === name) !== undefined;
 }
@@ -237,7 +226,7 @@ export async function executeCommand(agent, message) {
     if (typeof parsed === 'string')
         return parsed; //The command was incorrectly formatted or an invalid input was given.
     else {
-        logger.debug('parsed command:', parsed);
+        console.log('parsed command:', parsed);
         const command = getCommand(parsed.commandName);
         let numArgs = 0;
         if (parsed.args) {
@@ -246,72 +235,17 @@ export async function executeCommand(agent, message) {
         if (numArgs !== numParams(command))
             return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
         else {
-            // Check if we have this command cached in Qdrant first
-            if (agent.prompter && agent.prompter.vectorClient) {
-                try {
-                    // Create a unique key for this command and its arguments
-                    const commandKey = `${command.name}:${parsed.args ? parsed.args.join(',') : ''}`;
-                    logger.debug(`Checking for cached command: ${commandKey}`);
-                    
-                    // Try to retrieve the cached result
-                    const cachedResult = await retrieveCachedCommand(agent.prompter.vectorClient, 
-                                                                     agent.prompter.collectionName + "_actions", 
-                                                                     commandKey);
-                    
-                    if (cachedResult) {
-                        logger.debug(`Found cached result for command: ${commandKey}`);
-                        return cachedResult;
-                    } else {
-                        logger.debug(`No cached result found for command: ${commandKey}`);
-                    }
-                } catch (error) {
-                    console.error('Error checking command cache:', error);
-                    // Continue with normal execution if cache check fails
-                }
-            }
-            
-            // Execute the command normally
-            let result = await command.perform(agent, ...parsed.args);
-            if (typeof result === 'boolean') {
-                result = result ? 'Success running ' + command.name : 'Possible failure running ' + command.name;
-            }
-            logger.debug("result", result);
-            // Cache the result for future use
-            if (agent.prompter && agent.prompter.vectorClient && result) {
-                try {
-                    const commandKey = `${command.name}:${parsed.args ? parsed.args.join(',') : ''}`;
-                    await cacheCommandResult(agent.prompter.vectorClient, 
-                                           agent.prompter.collectionName + "_actions", 
-                                           commandKey, 
-                                           result);
-                } catch (error) {
-                    console.error('Error caching command result:', error);
-                }
-            }
-            
+            const result = await command.perform(agent, ...parsed.args);
             return result;
         }
     }
 }
 
-function getBotOutputSummary() {
-    const { bot } = this.agent;
-    if (bot.interrupt_code && !this.timedout) return '';
-    let output = bot.output;
-    const MAX_OUT = 500;
-    if (output.length > MAX_OUT) {
-        output = `Action output is very long (${output.length} chars) and has been shortened.\n
-      First outputs:\n${output.substring(0, MAX_OUT / 2)}\n...skipping many lines.\nFinal outputs:\n ${output.substring(output.length - MAX_OUT / 2)}`;
-    }
-    else {
-        output = 'Action output:\n' + output.toString();
-    }
-    bot.output = '';
-    return output;
-}
-
 function attemptArgumentRecovery(message, commandName, params) {
     try {
+        console.log(`Full message for command detection: "${message}"`);
+        console.log(`Command being searched for: "${commandName}"`);
+        logger.debug('attemptArgumentRecovery 1');
         // If no parameters are expected, return empty array
         if (params.length === 0) return [];
         
@@ -329,6 +263,7 @@ function attemptArgumentRecovery(message, commandName, params) {
                 singleQuoteMatch[2].trim()
             ];
         }
+        logger.debug('attemptArgumentRecovery 2');
         
         // Pattern 2: No quotes around string arguments
         // Example: !goToPlayer(acdxz, 3)
@@ -341,12 +276,14 @@ function attemptArgumentRecovery(message, commandName, params) {
                 noQuotesMatch[2].trim()
             ];
         }
+        logger.debug('attemptArgumentRecovery 3');
         
         // Pattern 3: Arguments without parentheses
         // Example: !goToPlayer acdxz 3
         const noParenesPattern = new RegExp(`${commandName.replace('!', '\\!')}\\s+([a-zA-Z0-9_"']+)\\s+([0-9.]+)`);
         const noParensMatch = message.match(noParenesPattern);
         
+        logger.debug('attemptArgumentRecovery 4');
         if (noParensMatch && noParensMatch.length >= 3) {
             let arg1 = noParensMatch[1];
             // Add quotes if needed
@@ -355,6 +292,7 @@ function attemptArgumentRecovery(message, commandName, params) {
             }
             return [arg1, noParensMatch[2].trim()];
         }
+        logger.debug('attemptArgumentRecovery 5');
         
         // Pattern 4: Try to extract arguments by position after command
         // This is a more general fallback approach
@@ -362,6 +300,7 @@ function attemptArgumentRecovery(message, commandName, params) {
         if (commandPosition !== -1) {
             const afterCommand = message.substring(commandPosition + commandName.length).trim();
             
+            logger.debug('attemptArgumentRecovery 6');
             // If we're expecting string parameters
             if (params[0].type === 'string') {
                 // Look for strings that might be arguments
@@ -377,6 +316,7 @@ function attemptArgumentRecovery(message, commandName, params) {
                     });
                 }
             }
+            logger.debug('attemptArgumentRecovery 7');
             
             // For numeric parameters, try to find numbers
             if (params[0].type === 'int' || params[0].type === 'float') {
@@ -385,6 +325,54 @@ function attemptArgumentRecovery(message, commandName, params) {
                     return numberArgs.slice(0, params.length);
                 }
             }
+        }
+
+        // Pattern 5: Arguments in parentheses, possibly mixed quoted and bareword
+        // Example: !setMode("cheat", False) or !setMode(cheat, false)
+        const parenPattern = new RegExp(`${commandName.replace('!', '\\!')}\\s*\\(([^)]*)\\)`);
+        console.log(`Searching for pattern: ${parenPattern}`);
+        const parenMatch = message.match(parenPattern);
+        console.log(`Match result:`, parenMatch);
+
+        if (parenMatch && parenMatch[1]) {
+            console.log(`Found arguments in parentheses: "${parenMatch[1]}"`);
+            
+            // Split arguments by comma and trim
+            let rawArgs = parenMatch[1].split(',').map(arg => arg.trim());
+            console.log(`Raw arguments after splitting:`, rawArgs);
+            
+            // Ensure each argument is wrapped in double quotes
+            let quotedArgs = rawArgs.map((arg, index) => {
+                console.log(`Processing argument ${index}: "${arg}"`);
+                
+                // Process boolean values specially
+                if (arg.toLowerCase() === 'true' || arg.toLowerCase() === 'false' || 
+                    arg.toLowerCase() === 'false;' || arg.toLowerCase() === 'true;') {
+                    // Keep boolean values as is without quotes
+                    console.log(`  Argument is a boolean value, keeping as is: ${arg}`);
+                    return arg.toLowerCase(); // Normalize to lowercase
+                }
+                // If already has double quotes, keep as is
+                else if (arg.startsWith('"') && arg.endsWith('"')) {
+                    console.log(`  Argument already has double quotes, keeping as is: ${arg}`);
+                    return arg;
+                }
+                // If has single quotes, replace with double quotes
+                else if (arg.startsWith("'") && arg.endsWith("'")) {
+                    const result = `"${arg.substring(1, arg.length - 1)}"`;
+                    console.log(`  Argument has single quotes, converted to: ${result}`);
+                    return result;
+                }
+                // Otherwise add double quotes
+                else {
+                    const result = `"${arg}"`;
+                    console.log(`  Adding double quotes to argument: ${result}`);
+                    return result;
+                }
+            });
+            
+            console.log(`Final quoted arguments:`, quotedArgs);
+            return quotedArgs;
         }
         
         // Recovery failed

@@ -56,12 +56,13 @@ export const WOOL_COLORS = [
 export function initBot(username) {
     let bot = createBot({
         username: username,
-
+        chatLengthLimit: 200,
+        logErrors: true,
         host: settings.host,
         port: settings.port,
         auth: settings.auth,
         keepAlive: true,
-        checkTimeoutInterval: 50000,
+        checkTimeoutInterval: 60 * 10000, // 600s timeout (https://github.com/PrismarineJS/mineflayer/issues/710)
         version: mc_version,
     });
     bot.loadPlugin(pathfinder);

@@ -346,7 +346,6 @@ export class ActionStateManager {
                     
                     // Read the code file
                     const codeData = await readFileAsync(codeFilePath, 'utf8');
-                    //logger.debug(`Code file content:', codeData.substring(0, 200) + '...'); // Show first 200 chars
                     
                     const compartment = makeCompartment({
                         skills,
@@ -354,7 +353,6 @@ export class ActionStateManager {
                         world,
                         Vec3
                     });
-                    // logger.debug(`Resuming Code: \r\n' + codeData);
                     // Evaluate the code in the compartment
                     const mainFn = await compartment.evaluate(codeData);
                     logger.debug('Evaluated mainFn:', mainFn);
