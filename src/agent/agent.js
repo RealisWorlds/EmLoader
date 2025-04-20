@@ -95,7 +95,6 @@ export class Agent {
                 try {
                     clearTimeout(spawnTimeout);
                     patchChatWithDelay(this.bot, 200);
-                    addBrowserViewer(this.bot, this.count_id);
                     console.log(`${this.name} spawned.`);
                     this.clearBotLogs();
 
@@ -108,6 +107,7 @@ export class Agent {
 
                     logger.debug('Initializing vision intepreter...');
                     this.vision_interpreter = new VisionInterpreter(this, settings.allow_vision);
+                    addBrowserViewer(this, this.count_id);
 
                 } catch (error) {
                     console.error('Error in spawn event:', error);
@@ -289,6 +289,7 @@ export class Agent {
             // Add all messages to history
             for (const msg of messagesToProcess) {
                 await this.history.add(msg.source, msg.message);
+                if (settings.show_bot_views) this.bot.emit('xmit_history', msg.source==='system'?'%system%':msg.source, msg.message);
             }
             this.history.save();
             
@@ -315,6 +316,7 @@ export class Agent {
                 }
                 behavior_log = 'Recent behaviors log: \n' + behavior_log;
                 await this.history.add('system', behavior_log);
+                if (settings.show_bot_views) this.bot.emit('xmit_history', '%system%', behavior_log);
             }
     
             if (!self_prompt && this.self_prompter.isActive()) // message is from user during self-prompting
@@ -346,6 +348,7 @@ export class Agent {
                 if (command_name) { // contains query or command
                     res = truncCommandMessage(res); // everything after the command is ignored
                     this.history.add(this.name, res);
+                    if (settings.show_bot_views) this.bot.emit('xmit_history', this.name, res);
                     
                     if (!commandExists(command_name)) {
                         this.history.add('system', `Command ${command_name} does not exist.`);
@@ -383,6 +386,7 @@ export class Agent {
                     if (execute_res) {
                         logger.debug('Adding execute result to history.');
                         this.history.add('system', execute_res);
+                        if (settings.show_bot_views) this.bot.emit('xmit_history', '%system%', execute_res);
                         logger.debug('History updated.');
                     } else {
                         logger.debug('execute_res was false');
@@ -392,6 +396,7 @@ export class Agent {
                 else { // conversation response
                     logger.debug('Adding conversation response to history.');
                     this.history.add(this.name, res);
+                    if (settings.show_bot_views) this.bot.emit('xmit_history', this.name, res);
                     this.routeResponse(source, res);
                     logger.debug('Conversation response history updated.');
                     break;
